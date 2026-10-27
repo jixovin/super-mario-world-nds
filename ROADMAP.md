@@ -33,11 +33,12 @@ custom rendering.
   diagnostic. It has not yet been run on the R4/DS Lite.
 - Checked out upstream SuperMarioWorldRecomp v0.15.1 locally. The Windows
   package is not portable game source. Rustup and the upstream-pinned Rust
-  toolchain are installed. The native analyzer build currently needs the
-  Microsoft C++ linker; ROM-derived C has not been generated yet.
-- Created the public `jixovin/super-mario-world-nds` repository. Initial source
-  and project documentation are being published; ROM data, generated game C,
-  and the upstream checkout remain excluded.
+  toolchain are installed. Building the native analyzer stopped because
+  `link.exe` is missing; the Visual C++ compiler component still needs to be
+  installed. ROM-derived C has not been generated yet.
+- Created the public [`jixovin/super-mario-world-nds`](https://github.com/jixovin/super-mario-world-nds)
+  repository and published the initial source and project documentation. ROM
+  data, generated game C, upstream code, and the `.nds` build are excluded.
 
 ## Stages
 
@@ -89,9 +90,10 @@ promising a full-game schedule.
 1. Copy `nds/build/smw-nds.nds` to the R4 microSD card and launch it on the DS
    Lite. The top screen should show color bars; the bottom screen should show
    buttons as they are pressed. Press START to exit.
-2. Finish building the upstream analyzer once the required C++ linker is
-   available, then generate the local source from the provided ROM. Keep both
-   ROM material and generated game code out of the public repository.
+2. Install the Visual C++ x86/x64 compiler and linker component in Visual
+   Studio Build Tools, then build the upstream analyzer and generate local
+   source from the provided ROM. Keep both ROM material and generated game
+   code out of the public repository.
 3. After the initial repository files are published, use GitHub issues to
    track hardware feedback and the first renderer/runtime milestones.
 
