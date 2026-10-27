@@ -30,7 +30,8 @@ custom rendering.
 - Installed the official devkitPro NDS package, including devkitARM, libnds,
   and `ndstool`.
 - Built `nds/build/smw-nds.nds`, a two-screen color/scaling and input
-  diagnostic. It has not yet been run on the R4/DS Lite.
+  diagnostic and confirmed it boots on the DS Lite/R4: the top-screen color
+  bars display, button input registers on the lower screen, and START exits.
 - Checked out upstream SuperMarioWorldRecomp v0.15.1 locally. The Windows
   package is not portable game source. Rustup and the upstream-pinned Rust
   toolchain are installed. Building the native analyzer stopped because
@@ -87,14 +88,11 @@ promising a full-game schedule.
 
 ## Current next actions
 
-1. Copy `nds/build/smw-nds.nds` to the R4 microSD card and launch it on the DS
-   Lite. The top screen should show color bars; the bottom screen should show
-   buttons as they are pressed. Press START to exit.
-2. Install the Visual C++ x86/x64 compiler and linker component in Visual
+1. Install the Visual C++ x86/x64 compiler and linker component in Visual
    Studio Build Tools, then build the upstream analyzer and generate local
    source from the provided ROM. Keep both ROM material and generated game
    code out of the public repository.
-3. Use GitHub issues to track hardware feedback and the first renderer/runtime
+2. Use GitHub issues to track hardware feedback and the first renderer/runtime
    milestones.
 
 
