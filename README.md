@@ -12,7 +12,10 @@ from the supplied USA ROM. That generated code is not yet linked into the NDS
 target or playable. The upstream desktop runtime depends on SDL/OpenGL and
 host-side services, so the next step is identifying and replacing the minimum
 runtime pieces needed to boot the original game logic on ARM9. The Windows
-executable supplied as a reference cannot run on a DS.
+executable supplied as a reference cannot run on a DS. A full generated ARM
+code set is about 9.1 MB, larger than the DS's 4 MB main RAM; a smaller
+reset-vector build is about 1.24 MB and is being evaluated as the first native
+runtime experiment. See the roadmap for measurements and caveats.
 
 See [the roadmap](ROADMAP.md) for the staged plan and estimates.
 
