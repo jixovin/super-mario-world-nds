@@ -1,0 +1,18 @@
+# The upstream checkout is a local reference only; keep its independent Git
+# repository, generated output, and all source ROMs out of this public project.
+/reference/
+/roms/
+*.sfc
+*.smc
+*.fig
+
+# Local NDS build products and emulator files.
+/nds/build/
+*.elf
+*.nds
+*.map
+*.gba
+*.sav
+*.dsv
+
+
