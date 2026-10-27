@@ -6,12 +6,13 @@ the lower screen for a compact HUD, map, and useful status information.
 
 ## Current state
 
-The upstream v0.15.1 recompilation has been checked out locally as a reference.
-The first DS target is a small hardware bring-up program that checks dual-screen
-output, color conversion, frame scaling, and button input. It is not playable
-yet. The DS target will reuse the recompiled game logic where practical, but it
-needs a new NDS runtime, software renderer, input layer, audio path, and save
-storage. The Windows executable supplied as a reference cannot run on a DS.
+The initial dual-screen/input diagnostic boots on a DS Lite with an R4. The
+upstream analyzer is installed and has generated 65816-to-C game code locally
+from the supplied USA ROM. That generated code is not yet linked into the NDS
+target or playable. The upstream desktop runtime depends on SDL/OpenGL and
+host-side services, so the next step is identifying and replacing the minimum
+runtime pieces needed to boot the original game logic on ARM9. The Windows
+executable supplied as a reference cannot run on a DS.
 
 See [the roadmap](ROADMAP.md) for the staged plan and estimates.
 
