@@ -39,6 +39,21 @@ custom rendering.
   17 banks, 8,076 analysis roots, 8,276 exact variants, and 11,987 edges.
   Generated C totals about 68.3 MB across 102 C files, plus a 6.2 MB manifest.
   The ROM, generated C, and upstream checkout remain local and ignored by Git.
+- Cross-compiled all 102 full-set generated C units for the DS ARM946E-S with
+  devkitARM at `-Os`. Their object files total 14.1 MB and their code sections
+  total 9.06 MB, before adding the runtime. A monolithic full-game AOT link
+  therefore cannot fit in the DS's 4 MB main RAM; the project needs selective
+  AOT, code overlays, or another way to keep only part of the generated code
+  resident.
+- Ran a separate reset-vector-only generation spike: 9 roots, 389 exact
+  variants (339 AOT and 50 interpreter-only), and 11 generated C units. Those
+  units compile to 1.24 MB of ARM code. This is a promising size for a boot
+  experiment, but it has not yet been linked or shown to reach gameplay.
+- Also confirmed that the CPU state/infrastructure, 65816 interpreter bridge,
+  SNES CPU/PPU pieces, game initialization, game renderer/video, and SPC player
+  sources compile for ARM9. The upstream `common_rtl.c` needed a temporary
+  NDS-side config-header shim to avoid its desktop SDL include; the actual NDS
+  runtime is not linked yet.
 - The generated C is only the translated 65816 game code. It depends on the
   upstream SNES CPU/runtime interfaces, while the upstream desktop game target
   also brings SDL, OpenGL, desktop threading, and host-side services. None of
@@ -66,14 +81,13 @@ custom rendering.
 | 9. Complete main story | Complete and tune all seven main worlds, castles, Bowser's castle, ending, save progression, secrets on the intended main route, and level-to-level state. | 120–300 hours | 18–43 weeks |
 | 10. Release polish | Title/options, control instructions, credits, clean build steps, known-issues list, and a release candidate tested from a fresh microSD copy. | 20–50 hours | 3–8 weeks |
 
-Stages overlap where practical. The table sums to roughly **320–790 engineering
-hours**, or **about 46–113 weeks** at seven hours per week. A realistic planning
-range is therefore **around 1–2 years for the full main story**, with the first
-playable castle milestone estimated at **about 4–10 months**. These figures
-assume steady weekly feedback and that most runtime code can be adapted rather
-than rewritten. If the renderer/audio core cannot meet speed or memory limits,
-the fallback plan is to simplify rendering/audio and reduce the scope before
-promising a full-game schedule.
+Stages overlap where practical. The initial table sums to roughly **320–790
+engineering hours**, or **about 46–113 weeks** at seven hours per week. Its
+calendar range of **around 1–2 years for the full main story** and **about 4–10
+months for the first playable castle** is now provisional: the full generated
+AOT set is over twice the DS's main RAM even before runtime code. We will revise
+the schedule after the selective-AOT/overlay decision and a first runtime link
+spike establishes actual resident code and graphics memory.
 
 ## Performance and hardware risks
 
@@ -97,15 +111,14 @@ promising a full-game schedule.
 
 ## Current next actions
 
-1. Trace the generated entry points through the upstream CPU state, memory,
-   PPU, and frame-driver interfaces; mark desktop-only dependencies that need
-   NDS replacements.
-2. Make a small ARM9 link spike using the minimum translated code and runtime
-   pieces. Its exit check is a bootable `.nds` that advances the original
-   title/reset logic, even before graphics work is complete.
-3. After the link spike establishes the runtime boundary, plan the first
-   on-screen SMW frame and reduce or partition generated code if size/memory
-   measurements require it.
+1. Trace the reset-vector subset through the CPU state, memory bus, interpreter
+   fallback, PPU, and frame driver. Decide which runtime pieces can be reused
+   behind a small NDS config/platform layer.
+2. Link and boot a reset/title-flow experiment on the ARM9. Keep the vector-only
+   code resident at first; then add only profiled AOT roots as the game reaches
+   more routines.
+3. Measure the rendered frame and runtime memory on hardware before choosing
+   between further selective AOT and a bank/overlay loader for the full story.
 4. Keep ROM-derived source and the ROM local; continue using GitHub issues to
    track hardware feedback and implementation milestones.
 
