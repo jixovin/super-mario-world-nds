@@ -33,10 +33,19 @@ custom rendering.
   diagnostic and confirmed it boots on the DS Lite/R4: the top-screen color
   bars display, button input registers on the lower screen, and START exits.
 - Checked out upstream SuperMarioWorldRecomp v0.15.1 locally. The Windows
-  package is not portable game source. Rustup and the upstream-pinned Rust
-  toolchain and MSVC x64 linker are installed. Building the native analyzer
-  now stops because the Windows SDK libraries, including `kernel32.lib`, are
-  missing. ROM-derived C has not been generated yet.
+  package is not portable game source. The local analyzer has now been built
+  successfully with Rust, MSVC, and the Windows SDK. The supplied USA ROM was
+  read locally and the upstream generator successfully emitted ROM-derived C:
+  17 banks, 8,076 analysis roots, 8,276 exact variants, and 11,987 edges.
+  Generated C totals about 68.3 MB across 102 C files, plus a 6.2 MB manifest.
+  The ROM, generated C, and upstream checkout remain local and ignored by Git.
+- The generated C is only the translated 65816 game code. It depends on the
+  upstream SNES CPU/runtime interfaces, while the upstream desktop game target
+  also brings SDL, OpenGL, desktop threading, and host-side services. None of
+  that has been linked into an NDS game yet. The next engineering task is to
+  isolate the minimum CPU/game runtime and video hooks needed for one booted
+  frame; the generated source volume alone does not tell us the final `.nds`
+  size or prove that the full runtime fits the DS.
 - Created the [`jixovin/super-mario-world-nds`](https://github.com/jixovin/super-mario-world-nds)
   repository and published the initial source and project documentation. ROM
   data, generated game C, upstream code, and the `.nds` build are excluded.
@@ -88,11 +97,16 @@ promising a full-game schedule.
 
 ## Current next actions
 
-1. Add the Windows 11 SDK (10.0.26100) to the Visual Studio Build Tools
-   installation, then build the upstream analyzer and generate local source
-   from the provided ROM. Keep both ROM material and generated game code out
-   of the repository.
-2. Use GitHub issues to track hardware feedback and the first renderer/runtime
-   milestones.
+1. Trace the generated entry points through the upstream CPU state, memory,
+   PPU, and frame-driver interfaces; mark desktop-only dependencies that need
+   NDS replacements.
+2. Make a small ARM9 link spike using the minimum translated code and runtime
+   pieces. Its exit check is a bootable `.nds` that advances the original
+   title/reset logic, even before graphics work is complete.
+3. After the link spike establishes the runtime boundary, plan the first
+   on-screen SMW frame and reduce or partition generated code if size/memory
+   measurements require it.
+4. Keep ROM-derived source and the ROM local; continue using GitHub issues to
+   track hardware feedback and implementation milestones.
 
 
