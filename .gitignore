@@ -1,5 +1,5 @@
 # The upstream checkout is a local reference only; keep its independent Git
-# repository, generated output, and all source ROMs out of this public project.
+# repository, generated output, and all source ROMs out of this project.
 /reference/
 /roms/
 *.sfc
