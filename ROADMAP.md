@@ -37,7 +37,7 @@ custom rendering.
   toolchain are installed. Building the native analyzer stopped because
   `link.exe` is missing; the Visual C++ compiler component still needs to be
   installed. ROM-derived C has not been generated yet.
-- Created the public [`jixovin/super-mario-world-nds`](https://github.com/jixovin/super-mario-world-nds)
+- Created the [`jixovin/super-mario-world-nds`](https://github.com/jixovin/super-mario-world-nds)
   repository and published the initial source and project documentation. ROM
   data, generated game C, upstream code, and the `.nds` build are excluded.
 
@@ -45,7 +45,7 @@ custom rendering.
 
 | Stage | Deliverable and exit check | Engineering effort | Approx. elapsed time |
 |---|---|---:|---:|
-| 0. Toolchain and clean project setup | Public repository has only project code/docs; devkitARM, libnds, and `ndstool` work; ROM and generated outputs are excluded. | 4–10 hours | 1–2 weeks |
+| 0. Toolchain and clean project setup | Repository has only project code/docs; devkitARM, libnds, and `ndstool` work; ROM and generated outputs are excluded. | 4–10 hours | 1–2 weeks |
 | 1. DS hardware bring-up | A bootable `.nds` displays correctly on both screens, verifies color conversion/scaling, reads buttons, and exits or resets cleanly. | 8–18 hours | 2–3 weeks |
 | 2. Recompiler and runtime inventory | Identify the smallest set of upstream generated/runtime files needed for one game frame; record dependencies and licensing; generate local C from the supplied USA ROM without adding it to Git. | 12–30 hours | 2–5 weeks |
 | 3. CPU/game-state integration | Boot SMW logic on ARM9; reset/title flow advances; input reaches the original joypad state; detect crashes and unsupported desktop assumptions. | 30–70 hours | 5–10 weeks |
@@ -91,7 +91,7 @@ promising a full-game schedule.
 1. Install the Visual C++ x86/x64 compiler and linker component in Visual
    Studio Build Tools, then build the upstream analyzer and generate local
    source from the provided ROM. Keep both ROM material and generated game
-   code out of the public repository.
+   code out of the repository.
 2. Use GitHub issues to track hardware feedback and the first renderer/runtime
    milestones.
 
