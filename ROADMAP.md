@@ -94,7 +94,7 @@ promising a full-game schedule.
    Studio Build Tools, then build the upstream analyzer and generate local
    source from the provided ROM. Keep both ROM material and generated game
    code out of the public repository.
-3. After the initial repository files are published, use GitHub issues to
-   track hardware feedback and the first renderer/runtime milestones.
+3. Use GitHub issues to track hardware feedback and the first renderer/runtime
+   milestones.
 
 
