@@ -34,9 +34,9 @@ custom rendering.
   bars display, button input registers on the lower screen, and START exits.
 - Checked out upstream SuperMarioWorldRecomp v0.15.1 locally. The Windows
   package is not portable game source. Rustup and the upstream-pinned Rust
-  toolchain are installed. Building the native analyzer stopped because
-  `link.exe` is missing; the Visual C++ compiler component still needs to be
-  installed. ROM-derived C has not been generated yet.
+  toolchain and MSVC x64 linker are installed. Building the native analyzer
+  now stops because the Windows SDK libraries, including `kernel32.lib`, are
+  missing. ROM-derived C has not been generated yet.
 - Created the [`jixovin/super-mario-world-nds`](https://github.com/jixovin/super-mario-world-nds)
   repository and published the initial source and project documentation. ROM
   data, generated game C, upstream code, and the `.nds` build are excluded.
@@ -88,10 +88,10 @@ promising a full-game schedule.
 
 ## Current next actions
 
-1. Install the Visual C++ x86/x64 compiler and linker component in Visual
-   Studio Build Tools, then build the upstream analyzer and generate local
-   source from the provided ROM. Keep both ROM material and generated game
-   code out of the repository.
+1. Add the Windows 11 SDK (10.0.26100) to the Visual Studio Build Tools
+   installation, then build the upstream analyzer and generate local source
+   from the provided ROM. Keep both ROM material and generated game code out
+   of the repository.
 2. Use GitHub issues to track hardware feedback and the first renderer/runtime
    milestones.
 
