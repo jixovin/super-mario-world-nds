@@ -6,6 +6,7 @@
  */
 #include <nds.h>
 #include <fat.h>
+#include <filesystem.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -40,19 +41,23 @@ static uint8_t *ReadWholeFile(const char *path, size_t *size) {
   return data;
 }
 
-/* Game graphics/levels: built into the .nds by build.bat when available,
- * otherwise read from the SD card. */
+/* Game graphics/levels, from (in order): data built into the program by
+ * build.bat, a file packed into the .nds file system, or the SD card. */
 static const uint8_t *LoadAssets(size_t *size, bool have_fat) {
 #ifdef HAVE_EMBEDDED_ASSETS
   *size = smw_assets_bin_size;
   return smw_assets_bin;
 #else
-  static const char *const kPaths[] = {
+  static const char *const kSdPaths[] = {
     "/smw_assets.dat", "/_nds/smw-nds/smw_assets.dat",
   };
+  if (nitroFSInit(NULL)) {
+    uint8_t *data = ReadWholeFile("nitro:/smw_assets.dat", size);
+    if (data) return data;
+  }
   if (!have_fat) return NULL;
-  for (unsigned i = 0; i < sizeof(kPaths) / sizeof(kPaths[0]); i++) {
-    uint8_t *data = ReadWholeFile(kPaths[i], size);
+  for (unsigned i = 0; i < sizeof(kSdPaths) / sizeof(kSdPaths[0]); i++) {
+    uint8_t *data = ReadWholeFile(kSdPaths[i], size);
     if (data) return data;
   }
   return NULL;
