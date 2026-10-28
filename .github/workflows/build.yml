@@ -19,6 +19,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          { ls /opt/devkitpro; ls /opt/devkitpro/libnds /opt/devkitpro/libnds/lib /opt/devkitpro/calico/lib; ls /opt/devkitpro/examples/nds 2>/dev/null | head; cat /opt/devkitpro/examples/nds/templates/arm9/Makefile 2>/dev/null; } > env.log 2>&1 || true
           make -C nds 2>&1 | tee build.log
       - name: Upload .nds
         uses: actions/upload-artifact@v4
@@ -36,6 +37,7 @@ jobs:
           cp build.log /tmp/build.log 2>/dev/null || echo "no log" > /tmp/build.log
           cd /tmp && rm -rf logrepo && mkdir logrepo && cd logrepo && git init -q
           cp /tmp/build.log build.log
+          cp "$GITHUB_WORKSPACE/env.log" env.log 2>/dev/null || true
           echo "${GITHUB_SHA} ${{ job.status }}" > status.txt
           git -c user.name=ci -c user.email=ci@users.noreply.github.com add . 
           git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Build log for ${GITHUB_SHA}"
