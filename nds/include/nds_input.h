@@ -22,4 +22,3 @@ enum {
 uint16_t NdsInputReadHeld(void);
 
 #endif
-

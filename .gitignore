@@ -16,3 +16,6 @@
 *.dsv
 
 
+# Local secrets (never commit)
+.github-token
+*.token

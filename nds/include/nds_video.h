@@ -21,4 +21,3 @@ bool NdsVideoInit(void);
 void NdsVideoPresentFrame(const uint32_t *frame, size_t pitch_bytes);
 
 #endif
-

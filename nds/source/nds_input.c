@@ -22,4 +22,3 @@ uint16_t NdsInputReadHeld(void) {
 
   return result;
 }
-

@@ -122,4 +122,3 @@ spike establishes actual resident code and graphics memory.
 4. Keep ROM-derived source and the ROM local; continue using GitHub issues to
    track hardware feedback and implementation milestones.
 
-

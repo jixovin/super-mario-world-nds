@@ -47,4 +47,3 @@ generated ROM-derived C, or the upstream checkout.
 
 This is an independent homebrew project and is not affiliated with Nintendo.
 
-

@@ -20,9 +20,9 @@ CFLAGS += -Iinclude -I$(LIBNDS)/include -DARM9
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions
 ASFLAGS := -g $(ARCH)
 LDFLAGS = -specs=ds_arm9.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
-LIBS := -lnds9
-LIBDIRS := $(LIBNDS)
-LIBPATHS := -L$(LIBNDS)/lib
+LIBS := -lfat -lnds9
+LIBDIRS = $(LIBNDS)
+LIBPATHS = -L$(LIBNDS)/lib
 LD := $(CC)
 
 SOURCES := $(wildcard source/*.c)
@@ -47,5 +47,4 @@ clean:
 	@rm -rf $(BUILD)
 
 -include $(DEPS)
-
 
