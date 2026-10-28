@@ -1,76 +1,134 @@
+/* Super Mario World DS - ARM9 entry point.
+ *
+ * Runs the native game code (src/, from snesrev/smw) at the SNES's 60 Hz
+ * logic rate and shows the picture on the top screen. The bottom screen
+ * currently shows status text; the HUD/touch features come later.
+ */
 #include <nds.h>
+#include <fat.h>
 #include <stdio.h>
-#include <stdint.h>
+#include <stdlib.h>
 
-#include "nds_input.h"
-#include "nds_rom.h"
+#include "nds_timing.h"
 #include "nds_video.h"
+#include "smw_port.h"
 
-static uint32_t s_demo_frame[SMW_SNES_FRAME_WIDTH * SMW_SNES_FRAME_HEIGHT];
-static uint8_t s_smw_rom[NDS_SMW_ROM_SIZE];
+#ifdef HAVE_EMBEDDED_ASSETS
+#include "smw_assets_bin.h"
+#endif
 
-static void BuildColorBars(void) {
-  static const uint32_t colors[] = {
-      0x00FFFFFFu, 0x0000FFFFu, 0x00FFFF00u, 0x0000FF00u,
-      0x00FF00FFu, 0x000000FFu, 0x00FF0000u, 0x00000000u,
-  };
-  const unsigned bar_width = SMW_SNES_FRAME_WIDTH / 8;
+#define SMW_NDS_VERSION "0.1.0"
 
-  for (unsigned y = 0; y < SMW_SNES_FRAME_HEIGHT; ++y) {
-    for (unsigned x = 0; x < SMW_SNES_FRAME_WIDTH; ++x) {
-      s_demo_frame[y * SMW_SNES_FRAME_WIDTH + x] = colors[x / bar_width];
-    }
-  }
+void PortPlatformFatal(const char *message) {
+  iprintf("\x1b[2J\x1b[31;1mERROR\x1b[39m\n\n%s\n", message);
+  for (;;) swiWaitForVBlank();
 }
 
-static void PrintButtons(uint16_t buttons) {
-  iprintf("\x1b[14;0HButtons held:");
-  iprintf("\x1b[15;0H%12s %12s %12s %12s",
-          (buttons & SMW_PAD_UP) ? "UP" : "",
-          (buttons & SMW_PAD_DOWN) ? "DOWN" : "",
-          (buttons & SMW_PAD_LEFT) ? "LEFT" : "",
-          (buttons & SMW_PAD_RIGHT) ? "RIGHT" : "");
-  iprintf("\x1b[17;0HA:%c B:%c X:%c Y:%c L:%c R:%c",
-          (buttons & SMW_PAD_A) ? '1' : '-',
-          (buttons & SMW_PAD_B) ? '1' : '-',
-          (buttons & SMW_PAD_X) ? '1' : '-',
-          (buttons & SMW_PAD_Y) ? '1' : '-',
-          (buttons & SMW_PAD_L) ? '1' : '-',
-          (buttons & SMW_PAD_R) ? '1' : '-');
-  iprintf("\x1b[18;0HSTART:%c SELECT:%c",
-          (buttons & SMW_PAD_START) ? '1' : '-',
-          (buttons & SMW_PAD_SELECT) ? '1' : '-');
+static uint8_t *ReadWholeFile(const char *path, size_t *size) {
+  FILE *f = fopen(path, "rb");
+  if (!f) return NULL;
+  fseek(f, 0, SEEK_END);
+  long length = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  uint8_t *data = length > 0 ? malloc((size_t)length) : NULL;
+  if (data && fread(data, 1, (size_t)length, f) != (size_t)length) {
+    free(data);
+    data = NULL;
+  }
+  fclose(f);
+  *size = data ? (size_t)length : 0;
+  return data;
+}
+
+/* Game graphics/levels: built into the .nds by build.bat when available,
+ * otherwise read from the SD card. */
+static const uint8_t *LoadAssets(size_t *size, bool have_fat) {
+#ifdef HAVE_EMBEDDED_ASSETS
+  *size = smw_assets_bin_size;
+  return smw_assets_bin;
+#else
+  static const char *const kPaths[] = {
+    "/smw_assets.dat", "/_nds/smw-nds/smw_assets.dat",
+  };
+  if (!have_fat) return NULL;
+  for (unsigned i = 0; i < sizeof(kPaths) / sizeof(kPaths[0]); i++) {
+    uint8_t *data = ReadWholeFile(kPaths[i], size);
+    if (data) return data;
+  }
+  return NULL;
+#endif
+}
+
+static uint32_t ReadPad(void) {
+  scanKeys();
+  const uint32_t held = keysHeld();
+  uint32_t pad = 0;
+  if (held & KEY_UP) pad |= kPortPad_Up;
+  if (held & KEY_DOWN) pad |= kPortPad_Down;
+  if (held & KEY_LEFT) pad |= kPortPad_Left;
+  if (held & KEY_RIGHT) pad |= kPortPad_Right;
+  if (held & KEY_A) pad |= kPortPad_A;
+  if (held & KEY_B) pad |= kPortPad_B;
+  if (held & KEY_X) pad |= kPortPad_X;
+  if (held & KEY_Y) pad |= kPortPad_Y;
+  if (held & KEY_L) pad |= kPortPad_L;
+  if (held & KEY_R) pad |= kPortPad_R;
+  if (held & KEY_START) pad |= kPortPad_Start;
+  if (held & KEY_SELECT) pad |= kPortPad_Select;
+  return pad;
 }
 
 int main(void) {
-  if (!NdsVideoInit()) {
-    for (;;) swiWaitForVBlank();
+  defaultExceptionHandler();
+  NdsVideoInit();
+
+  iprintf("Super Mario World DS v%s\n", SMW_NDS_VERSION);
+  iprintf("Native port - not an emulator\n\n");
+
+  const bool have_fat = fatInitDefault();
+  size_t assets_size = 0;
+  const uint8_t *assets = LoadAssets(&assets_size, have_fat);
+  if (!assets)
+    PortPlatformFatal("Game data not found.\n\n"
+                      "Build with build.bat (it adds\n"
+                      "the data from your own ROM),\n"
+                      "or copy smw_assets.dat to the\n"
+                      "root of the SD card.");
+  const char *error = PortLoadAssets(assets, assets_size);
+  if (error) PortPlatformFatal(error);
+
+  PortInitGame();
+  NdsTimingStart();
+
+  uint32_t frames_run = 0, shown = 0, logic = 0, second_mark = 0;
+  unsigned fps_render = 0, fps_logic = 0;
+
+  for (;;) {
+    /* Run game logic to catch up with real time (60 Hz), at most 4 frames
+     * per drawn picture so a slow frame cannot snowball. */
+    const uint32_t due = NdsTimingFramesElapsed();
+    uint32_t steps = 0;
+    do {
+      PortRunFrame(ReadPad());
+      frames_run++;
+      logic++;
+    } while (frames_run < due && ++steps < 4);
+    if (frames_run < due) frames_run = due;
+
+    NdsVideoRenderFrame(PortGameRam());
+    shown++;
+
+    if (due - second_mark >= 60) {
+      fps_render = shown;
+      fps_logic = logic;
+      shown = logic = 0;
+      second_mark = due;
+      iprintf("\x1b[5;0Hdraw %2u fps  game %2u fps   ", fps_render, fps_logic);
+      iprintf("\x1b[6;0Hmode %02X                     ", PortGameRam()[0x100]);
+    }
+
+    /* Ahead of real time: sleep until the next screen refresh. */
+    if (frames_run > NdsTimingFramesElapsed())
+      swiWaitForVBlank();
   }
-
-  BuildColorBars();
-  NdsVideoPresentFrame(s_demo_frame, SMW_SNES_FRAME_WIDTH * sizeof(uint32_t));
-
-  uint32_t rom_crc32 = 0;
-  const NdsRomResult rom_result =
-      NdsRomLoad("/smw.sfc", s_smw_rom, sizeof(s_smw_rom), &rom_crc32);
-
-  iprintf("SMW DS v0.0.2 - ROM check\n\n");
-  iprintf("Top: color/scaling check\n");
-  iprintf("Bottom: input and SD check\n\n");
-  iprintf("ROM: %s\n", NdsRomResultText(rom_result));
-  if (rom_result == NDS_ROM_OK)
-    iprintf("CRC32: %08X  (512 KiB)\n", (unsigned)rom_crc32);
-  else
-    iprintf("Copy the matching USA ROM to\nSD root as smw.sfc.\n");
-  iprintf("\nThis still is not gameplay.\n");
-  iprintf("Press START to exit.\n");
-
-  while (pmMainLoop()) {
-    swiWaitForVBlank();
-    const uint16_t buttons = NdsInputReadHeld();
-    PrintButtons(buttons);
-    if (buttons & SMW_PAD_START) break;
-  }
-
-  return 0;
 }

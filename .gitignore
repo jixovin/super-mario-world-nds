@@ -21,3 +21,8 @@
 *.token
 /nds/*.nds
 /nds/*.elf
+
+# Game data made from your own ROM (never commit)
+/nds/data/*.bin
+smw_assets.dat
+*.bundle
