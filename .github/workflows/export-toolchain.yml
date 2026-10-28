@@ -5,6 +5,9 @@ name: Export toolchain
 
 on:
   workflow_dispatch:
+  # Pushing any commit to this branch also runs it.
+  push:
+    branches: [make-toolchain]
 
 permissions:
   contents: write
