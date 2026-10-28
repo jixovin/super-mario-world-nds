@@ -15,6 +15,28 @@
 #include "snes/ppu.h"
 
 extern Ppu *g_my_ppu;
+extern Ppu *g_ppu;
+
+/* "lines": print PPU register changes line by line during the next frame. */
+static bool g_dump_lines;
+static uint8_t g_prev_regs[PPU_SAVESTATE_REGS_SIZE];
+static void DumpLineHook(int line) {
+  if (line >= 1) {
+    const uint8_t *r = (const uint8_t *)g_ppu;
+    if (line == 1 || memcmp(r, g_prev_regs, PPU_SAVESTATE_REGS_SIZE)) {
+      Ppu *p = g_ppu;
+      printf(" line %3d: inidisp=%02x mode=%02x main=%02x sub=%02x mwin=%02x swin=%02x wsel=%06x "
+             "w1=%d-%d w2=%d-%d wlog=%04x cgwsel=%02x cgadsub=%02x fixed=%04x bg3=%d,%d bg1=%d,%d\n",
+             line, p->inidisp, p->bgmode, p->screenEnabled[0], p->screenEnabled[1],
+             p->screenWindowed[0], p->screenWindowed[1], (unsigned)p->windowsel,
+             p->window1left, p->window1right, p->window2left, p->window2right, p->wbgobjlog,
+             p->cgwsel, p->cgadsub, p->fixedColor, p->hScroll[2], p->vScroll[2],
+             p->hScroll[0], p->vScroll[0]);
+      memcpy(g_prev_regs, r, PPU_SAVESTATE_REGS_SIZE);
+    }
+  }
+  ppu_runLine(g_ppu, line);
+}
 
 void PortPlatformFatal(const char *message) {
   fprintf(stderr, "FATAL: %s\n", message);
@@ -90,6 +112,12 @@ int main(int argc, char **argv) {
       snprintf(path, sizeof(path), "%s/shot%02d_f%05d.ppm", argv[2], shot++, frame);
       WritePpm(path, 224);
       printf("wrote %s\n", path);
+      continue;
+    }
+    if (strncmp(line, "lines", 5) == 0) {
+      PortRunFrame(0);
+      frame++;
+      PortRunPpuLines(&DumpLineHook);  /* also renders, via the hook */
       continue;
     }
     if (strncmp(line, "regs", 4) == 0) {  /* PPU registers after the frame */

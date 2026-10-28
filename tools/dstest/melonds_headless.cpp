@@ -180,6 +180,19 @@ int main(int argc, char **argv) {
     }
     if (s.rfind("touch:", 0) == 0) { int x, y; sscanf(s.c_str() + 6, "%d,%d", &x, &y); nds.TouchScreen(x, y); continue; }
     if (s == "untouch") { nds.ReleaseScreen(); continue; }
+    if (s.rfind("io:", 0) == 0) {  // io:0x04000000,0x04000048 -> print 16-bit I/O registers
+      printf("frame %d:", frame);
+      size_t pos = 3;
+      while (pos < s.size()) {
+        size_t e = s.find(',', pos);
+        u32 a = strtoul(s.substr(pos, e == std::string::npos ? std::string::npos : e - pos).c_str(), nullptr, 16);
+        printf(" [%08x]=%04x", a, nds.ARM9IORead16(a));
+        if (e == std::string::npos) break;
+        pos = e + 1;
+      }
+      printf("\n");
+      continue;
+    }
     size_t c = s.find(':');
     int n = atoi(s.substr(0, c).c_str());
     u32 held = c == std::string::npos ? 0 : KeyBits(s.substr(c + 1));

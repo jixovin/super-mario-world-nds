@@ -18,9 +18,11 @@
  *               DS 32-wide grid
  *
  * Supported so far: SNES mode 1 (nearly all of the game), scroll splits
- * and per-line scroll/backdrop changes, brightness fades, mosaic.
- * Not yet: mode 7, windows (message box / keyhole / circle wipes) and
- * colour math beyond the backdrop.
+ * and per-line scroll/backdrop changes, brightness fades, mosaic, and
+ * windows (message box, keyhole, circle wipes) via DS windows 0/1 with
+ * per-line positions; window colour effects (clip to black, no colour
+ * math) via DS darkening.
+ * Not yet: mode 7 and translucent colour math.
  */
 #include "nds_render.h"
 
@@ -47,6 +49,8 @@ typedef struct LineRegs {
   uint16_t hs[4], vs[4];
   uint16_t fixed;
   uint8_t inidisp, bgmode, main, sub, cgwsel, cgadsub, mosaic;
+  uint8_t main_win, sub_win, w1l, w1r, w2l, w2r;
+  uint32_t windowsel;
 } LineRegs;
 
 static LineRegs s_lines[kSnesRows];
@@ -56,6 +60,7 @@ static Ppu *s_ppu;
  * filled. Entry 0 is written directly at VBlank, entries 1..192 by DMA. */
 static uint16_t s_scroll[2][kDsRows + 1][8] __attribute__((aligned(32)));
 static uint16_t s_backdrop[2][kDsRows + 1] __attribute__((aligned(32)));
+static uint32_t s_winpos[2][kDsRows + 1] __attribute__((aligned(32)));
 static int s_table;
 
 static uint16_t s_vram_shadow[0x8000];   /* SNES VRAM as of the last capture */
@@ -110,6 +115,13 @@ static void CaptureLine(int line) {
   l->cgwsel = p->cgwsel;
   l->cgadsub = p->cgadsub;
   l->mosaic = p->mosaic;
+  l->main_win = p->screenWindowed[0];
+  l->sub_win = p->screenWindowed[1];
+  l->w1l = p->window1left;
+  l->w1r = p->window1right;
+  l->w2l = p->window2left;
+  l->w2r = p->window2right;
+  l->windowsel = p->windowsel;
 }
 
 
@@ -294,6 +306,92 @@ static void StartLineDma(int table) {
   DMA_CR(1) = DMA_ENABLE | DMA_REPEAT | DMA_START_HBL | DMA_DST_RESET | DMA_16_BIT | 1;
 }
 
+static void StartWindowDma(int table, bool enable) {
+  DMA_CR(2) = 0;
+  if (!enable) return;
+  *(vu32 *)0x04000040 = s_winpos[table][0];  /* WIN0H, WIN1H */
+  DMA_SRC(2) = (uint32_t)&s_winpos[table][1];
+  DMA_DEST(2) = 0x04000040;
+  DMA_CR(2) = DMA_ENABLE | DMA_REPEAT | DMA_START_HBL | DMA_DST_RESET | DMA_32_BIT | 1;
+}
+
+/* SNES window span [left, right] (inclusive; empty if left > right) as a DS
+ * WINxH value (x1 << 8 | x2, x2 exclusive; x2 = 0 means "to the edge"). */
+static inline uint16_t DsWindowSpan(uint8_t left, uint8_t right) {
+  if (left > right) return 0;
+  if (right == 255) return left == 0 ? 255 : (uint16_t)(left << 8);
+  return (uint16_t)(left << 8 | (right + 1));
+}
+
+/* SNES window logic for one layer (BG1-4 = 0-3, OBJ = 4, colour = 5) in one
+ * DS window region. snesrev ORs the two windows, as SMW only needs that. */
+static bool InSnesWindow(uint32_t windowsel, int layer, bool in_w1, bool in_w2) {
+  const uint32_t f = windowsel >> (layer * 4);
+  bool r = false;
+  if (f & 2) r |= (f & 1) ? !in_w1 : in_w1;
+  if (f & 8) r |= (f & 4) ? !in_w2 : in_w2;
+  return r;
+}
+
+typedef struct DsWindowRegs {
+  uint32_t dispcnt_bits;
+  uint16_t winin, winout, bldcnt, bldy;
+} DsWindowRegs;
+
+/* Work out DS window/effect registers from the SNES ones. DS regions:
+ * inside window 0 (= SNES W1), inside window 1 only (= W2), outside. */
+static DsWindowRegs ComputeWindows(const LineRegs *l, bool bg2_sub_only) {
+  DsWindowRegs r = {0, 0, 0, 0, 0};
+  const uint32_t ws = l->windowsel;
+  const bool uses_w1 = (ws & 0x222222) != 0, uses_w2 = (ws & 0x888888) != 0;
+  if (!uses_w1 && !uses_w2) return r;
+
+  /* Which SNES layers are window-masked on the screen they appear on. */
+  uint8_t masked = l->main_win & l->main;
+  if (bg2_sub_only) masked = (masked & ~2) | (l->sub_win & 2);
+  static const uint8_t kDsBits[5] = {1 | 2, 4, 8, 0, 16};  /* BG1 -> BG0+BG1 */
+
+  const unsigned cm = (l->cgwsel >> 6) & 3, pm = (l->cgwsel >> 4) & 3;
+  const bool backdrop_math = (l->cgadsub & 0x20) && !(l->cgadsub & 0x80);
+  bool any_clip = false, any_nomath = false;
+  bool clip[3], nomath[3];
+  uint8_t region_bits[3];
+  static const bool kIn1[3] = {true, false, false}, kIn2[3] = {false, true, false};
+  for (int rg = 0; rg < 3; rg++) {
+    uint8_t bits = 0;
+    for (int layer = 0; layer < 5; layer++) {
+      const bool hidden = (masked & (1 << layer)) && InSnesWindow(ws, layer, kIn1[rg], kIn2[rg]);
+      if (!hidden) bits |= kDsBits[layer];
+    }
+    region_bits[rg] = bits;
+    const bool cw = InSnesWindow(ws, 5, kIn1[rg], kIn2[rg]);
+    clip[rg] = cm == 3 || (cm == 1 && !cw) || (cm == 2 && cw);
+    nomath[rg] = pm == 3 || (pm == 1 && !cw) || (pm == 2 && cw);
+    any_clip |= clip[rg];
+    any_nomath |= nomath[rg];
+  }
+
+  /* Colour effects: "clip to black" darkens everything; "no colour math"
+   * where the sky colour comes from math leaves the plain backdrop, which
+   * in SMW is black (the message box). */
+  bool *effect = NULL;
+  if (any_clip) {
+    effect = clip;
+    r.bldcnt = BLEND_FADE_BLACK | BLEND_SRC_BG0 | BLEND_SRC_BG1 | BLEND_SRC_BG2 |
+               BLEND_SRC_BG3 | BLEND_SRC_SPRITE | BLEND_SRC_BACKDROP;
+  } else if (any_nomath && backdrop_math && (s_ppu->cgram[0] & 0x7fff) == 0) {
+    effect = nomath;
+    r.bldcnt = BLEND_FADE_BLACK | BLEND_SRC_BACKDROP;
+  }
+  r.bldy = 16;
+  const uint8_t e0 = effect && effect[0] ? 0x20 : 0, e1 = effect && effect[1] ? 0x20 : 0,
+                e2 = effect && effect[2] ? 0x20 : 0;
+  r.winin = (uint16_t)((region_bits[0] | e0) | (region_bits[1] | e1) << 8);
+  r.winout = (uint16_t)(region_bits[2] | e2);
+  r.dispcnt_bits = (uses_w1 ? DISPLAY_WIN0_ON : 0) | (uses_w2 ? DISPLAY_WIN1_ON : 0);
+  return r;
+}
+
 /* ---- per frame ------------------------------------------------------ */
 
 static const uint8_t kSpritePrio[4] = {2, 2, 1, 0};
@@ -319,7 +417,9 @@ void NdsRenderCapture(unsigned crop_top) {
     sc[6] = l->hs[2];
     sc[7] = l->vs[2] + v_add;
     s_backdrop[t][y] = Backdrop(l);
+    s_winpos[t][y] = DsWindowSpan(l->w1l, l->w1r) | (uint32_t)DsWindowSpan(l->w2l, l->w2r) << 16;
   }
+  DC_FlushRange(s_winpos[t], sizeof(s_winpos[t]));
   DC_FlushRange(s_scroll[t], sizeof(s_scroll[t]));
   DC_FlushRange(s_backdrop[t], sizeof(s_backdrop[t]));
   s_ready_table = t;
@@ -362,6 +462,16 @@ void NdsRenderPresent(void) {
   if (shown & 16) dispcnt |= DISPLAY_SPR_ACTIVE;
   if (PPU_mode(p) != 1)
     dispcnt &= ~(DISPLAY_BG0_ACTIVE | DISPLAY_BG1_ACTIVE | DISPLAY_BG2_ACTIVE | DISPLAY_BG3_ACTIVE);
+
+  const DsWindowRegs win = ComputeWindows(mid, bg2_sub_only);
+  dispcnt |= win.dispcnt_bits;
+  *(vu16 *)0x04000044 = kDsRows;  /* WIN0V: lines 0..191 */
+  *(vu16 *)0x04000046 = kDsRows;  /* WIN1V */
+  WIN_IN = win.winin;
+  WIN_OUT = win.winout;
+  REG_BLDCNT = win.bldcnt;
+  REG_BLDY = win.bldy;
+  StartWindowDma(s_table, win.dispcnt_bits != 0);
   REG_DISPCNT = dispcnt;
 
   /* Brightness fades and forced blank. */
