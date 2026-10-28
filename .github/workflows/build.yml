@@ -2,8 +2,12 @@ name: Build NDS
 
 on:
   push:
+    branches-ignore: [ci-logs]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -12,10 +16,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: make -C nds
+        shell: bash
+        run: |
+          set -o pipefail
+          make -C nds 2>&1 | tee build.log
       - name: Upload .nds
         uses: actions/upload-artifact@v4
         with:
           name: smw-nds-${{ github.sha }}
           path: nds/build/smw-nds.nds
           if-no-files-found: error
+      # Save the build log to the ci-logs branch so it can be read with git.
+      - name: Publish build log
+        if: always()
+        shell: bash
+        run: |
+          command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git)
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cp build.log /tmp/build.log 2>/dev/null || echo "no log" > /tmp/build.log
+          cd /tmp && rm -rf logrepo && mkdir logrepo && cd logrepo && git init -q
+          cp /tmp/build.log build.log
+          echo "${GITHUB_SHA} ${{ job.status }}" > status.txt
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com add . 
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Build log for ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" HEAD:ci-logs
