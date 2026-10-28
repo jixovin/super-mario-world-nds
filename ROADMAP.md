@@ -17,17 +17,21 @@ and touch features.
   (correct but ~7 fps).
 - **v0.2.0 (Oct 27, 2026):** hardware renderer using the DS 2D engine: full
   60 fps with ~5 ms of game logic per frame and <1 ms of VBlank upload.
+  Confirmed at a stable 60 fps on a real DS Lite + R4.
+- **v0.3.0 (Oct 28, 2026):** SNES windows (message boxes were invisible
+  before, which looked like a freeze), bottom-screen status bar with a big
+  touchable reserve-item box, FPS counter.
 
 ## Next milestones
 
 | # | Milestone | Done when |
 |---|---|---|
-| 1 | Real-hardware check | v0.2.0 runs on Liz's DS Lite + R4; controls feel right; saves persist. |
-| 2 | Bottom screen HUD | Status bar (lives, coins, time, score, stars) and reserve item drawn on the bottom screen; top screen shows the full play area. |
-| 3 | Touch features | Tap the reserve item to drop it; touch menu (save/options). |
+| 1 | Real-hardware check | Done for v0.2.0 (60 fps on DS Lite + R4). Saves still to verify. |
+| 2 | Bottom screen HUD | Done in v0.3.0. |
+| 3 | Audio | Music and sound effects, first in Yoshi's Island 1. |
 | 4 | Smart camera | Vertical crop follows Mario so nothing important is hidden. |
 | 5 | Remaining SNES effects | Windows (message box, keyhole, circle wipes), colour math (translucent layers), mode 7 (Bowser, Iggy/Larry, Reznor, etc.). |
-| 6 | Audio | Music and sound effects (SPC700 driver + DSP on the DS, likely using the ARM7). |
+| 6 | Touch menu | Options/save menu on the bottom screen. |
 | 7 | Full playthrough | Every world, castle and the ending checked on hardware; performance tuned. |
 | 8 | Release polish | Options, credits, build instructions, known-issues list. |
 

@@ -29,6 +29,7 @@
 #include <nds.h>
 #include <string.h>
 
+#include "nds_hud.h"
 #include "smw_port.h"
 #include "snes/ppu.h"
 
@@ -187,8 +188,11 @@ static void ConvertBlock(uint32_t blk) {
   /* 2bpp view, for BG3: two 8-word tiles per block. */
   const uint32_t rel3 = (w - bg3_base) & 0x7fff;
   if (rel3 < 1024 * 8) {
-    Convert2bpp(&vram[w], &DS_BG3_TILES[(rel3 / 8) * 8]);
-    Convert2bpp(&vram[w + 8], &DS_BG3_TILES[(rel3 / 8 + 1) * 8]);
+    const uint32_t i = rel3 / 8;
+    Convert2bpp(&vram[w], &DS_BG3_TILES[i * 8]);
+    Convert2bpp(&vram[w + 8], &DS_BG3_TILES[(i + 1) * 8]);
+    NdsHudOnBg3Tile(i, &DS_BG3_TILES[i * 8]);
+    NdsHudOnBg3Tile(i + 1, &DS_BG3_TILES[(i + 1) * 8]);
   }
 
   /* Sprite tiles: SNES grid is 16 tiles wide, DS 2D grid is 32 wide. */

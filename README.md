@@ -6,16 +6,18 @@ native ARM code, and the picture is drawn by the DS's 2D graphics hardware.
 The top screen shows the game; the bottom screen will hold the status bar
 and touch features.
 
-## Current state (v0.2.0)
+## Current state (v0.3.0)
 
-- Boots to the title screen, menus, overworld and levels at full speed
-  (60 fps) in the melonDS emulator. Real DS Lite testing in progress.
+- Runs at full speed (60 fps) on a real DS Lite + R4 (tested through most
+  of Yoshi's Island 1).
 - Hardware renderer: SNES tiles, maps, palettes and sprites are converted
   to the DS 2D engine each frame; scanline effects use HBlank DMA.
 - Silent for now (the sound driver runs, but no audio output yet).
+- Bottom screen: the original status bar, a large reserve-item box (tap it
+  to drop the item) and an FPS counter (tap it to turn it on/off).
+- SNES window effects: message boxes, keyhole and circle wipes.
 - Saves are written to `/_nds/smw-nds/saves/smw.srm` on the SD card.
-- Not yet: status bar on the bottom screen, touch controls, mode 7 scenes
-  (some boss fights), window effects (message box shape, circle wipes).
+- Not yet: audio, mode 7 scenes (some boss fights), translucent effects.
 
 See [the roadmap](ROADMAP.md) for what's next.
 
@@ -25,7 +27,7 @@ See [the roadmap](ROADMAP.md) for what's next.
 |---|---|
 | `src/` | [snesrev/smw](https://github.com/snesrev/smw) (MIT): a complete C reimplementation of the game logic. DS changes are marked `smw-nds`. |
 | `port/` | Platform-neutral glue: game data, input, frame stepping. |
-| `nds/` | DS program: entry point, timing, hardware renderer. |
+| `nds/` | DS program: entry point, timing, hardware renderer (top screen), HUD (bottom screen). |
 | `assets/` | snesrev's tool that extracts graphics/levels from **your own ROM**. |
 | `tools/hostrun/` | Desktop test harness: runs the same game core with scripted input and saves screenshots. |
 | `tools/dstest/` | Headless DS test runner built on the melonDS core. |

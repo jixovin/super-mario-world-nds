@@ -120,6 +120,24 @@ int main(int argc, char **argv) {
       PortRunPpuLines(&DumpLineHook);  /* also renders, via the hook */
       continue;
     }
+    if (strncmp(line, "vram", 4) == 0) {  /* "vram 5000 64": print words */
+      unsigned a = 0, n = 0;
+      sscanf(line + 4, "%x %u", &a, &n);
+      for (unsigned i = 0; i < n; i++)
+        printf("%s%04x", i % 32 ? " " : "\n  ", g_my_ppu->vram[(a + i) & 0x7fff]);
+      printf("\n");
+      continue;
+    }
+    if (strncmp(line, "oam", 3) == 0) {  /* sprites in the status bar area */
+      Ppu *p = g_my_ppu;
+      for (int i = 0; i < 128; i++) {
+        int y = p->oam[i * 2] >> 8, x = p->oam[i * 2] & 0xff;
+        int ext = p->highOam[i >> 2] >> ((i & 3) * 2);
+        if (y < 40) printf("  oam %3d: x=%3d y=%3d tile=%03x attr=%02x big=%d\n", i, x | ((ext & 1) << 8), y,
+                           (p->oam[i * 2 + 1] & 0xff) | ((p->oam[i * 2 + 1] & 0x100)), p->oam[i * 2 + 1] >> 8, (ext >> 1) & 1);
+      }
+      continue;
+    }
     if (strncmp(line, "regs", 4) == 0) {  /* PPU registers after the frame */
       Ppu *p = g_my_ppu;
       printf("frame %d: inidisp=%02x bgmode=%02x obsel=%02x mosaic=%02x bgsc=%02x,%02x,%02x,%02x "

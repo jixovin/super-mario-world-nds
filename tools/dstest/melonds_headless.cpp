@@ -180,6 +180,12 @@ int main(int argc, char **argv) {
     }
     if (s.rfind("touch:", 0) == 0) { int x, y; sscanf(s.c_str() + 6, "%d,%d", &x, &y); nds.TouchScreen(x, y); continue; }
     if (s == "untouch") { nds.ReleaseScreen(); continue; }
+    if (s.rfind("poke:", 0) == 0) {  // poke:addr,value (8-bit write to ARM9 memory)
+      u32 a = 0, v = 0;
+      sscanf(s.c_str() + 5, "%x,%x", &a, &v);
+      nds.ARM9Write8(a, (u8)v);
+      continue;
+    }
     if (s.rfind("io:", 0) == 0) {  // io:0x04000000,0x04000048 -> print 16-bit I/O registers
       printf("frame %d:", frame);
       size_t pos = 3;

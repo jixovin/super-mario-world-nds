@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "nds_timing.h"
+#include "nds_hud.h"
 #include "nds_render.h"
 #include "smw_port.h"
 
@@ -20,9 +21,10 @@
 #include "smw_assets_bin.h"
 #endif
 
-#define SMW_NDS_VERSION "0.2.0"
+#define SMW_NDS_VERSION "0.3.0"
 
 void PortPlatformFatal(const char *message) {
+  consoleDemoInit(); /* the bottom screen may be showing the HUD */
   iprintf("\x1b[2J\x1b[31;1mERROR\x1b[39m\n\n%s\n", message);
   for (;;) swiWaitForVBlank();
 }
@@ -120,39 +122,26 @@ int main(void) {
       PortLoadSave();
   }
   NdsRenderInit();
+  NdsHudInit();
   NdsTimingStart();
 
-  uint32_t frames = 0, last_vblank_count = 0;
-  uint32_t logic_ticks = 0, upload_ticks = 0;
+  uint32_t frames = 0, last_second = 0;
 
   for (;;) {
     /* One SNES frame per DS screen refresh (59.8 Hz vs the SNES's 60.1). */
-    const uint32_t t0 = NdsTimingTicks();
-    PortRunFrame(ReadPad());
+    PortRunFrame(NdsHudInput(ReadPad()));
     NdsRenderCapture(CropTop(PortGameRam()));
-    const uint32_t t1 = NdsTimingTicks();
 
     swiWaitForVBlank();
-    const uint32_t t2 = NdsTimingTicks();
     NdsRenderPresent();
-    const uint32_t t3 = NdsTimingTicks();
-
-    logic_ticks += t1 - t0;
-    upload_ticks += t3 - t2;
+    NdsHudPresent();
     frames++;
 
     const uint32_t now = NdsTimingFramesElapsed();
-    if (now - last_vblank_count >= 60) {
-      /* 1 tick = 0.0306 ms. Game speed is 60 when every frame fits. */
-      iprintf("\x1b[5;0Hgame speed %2lu fps         ", frames * 60 / (now - last_vblank_count));
-      iprintf("\x1b[6;0Hlogic  %2lu.%lu ms/frame      ",
-              logic_ticks * 306 / 1000 / frames / 10, logic_ticks * 306 / 1000 / frames % 10);
-      iprintf("\x1b[7;0Hupload %2lu.%lu ms/frame      ",
-              upload_ticks * 306 / 1000 / frames / 10, upload_ticks * 306 / 1000 / frames % 10);
-      iprintf("\x1b[8;0Hmode %02X                     ", PortGameRam()[0x100]);
+    if (now - last_second >= 60) {
+      NdsHudSetFps(frames * 60 / (now - last_second));
       frames = 0;
-      logic_ticks = upload_ticks = 0;
-      last_vblank_count = now;
+      last_second = now;
     }
   }
 }
