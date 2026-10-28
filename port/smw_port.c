@@ -95,12 +95,33 @@ void PortLoadSave(void) {
   RtlReadSram();
 }
 
+static int s_audio_mode = kPortAudio_Silent;
+
+void PortSetAudioMode(int mode) {
+  s_audio_mode = mode;
+}
+
+struct Dsp *PortDsp(void) {
+  return g_spc_player->dsp;
+}
+
+const uint8_t *PortSpcRam(void) {
+  return g_spc_player->ram;
+}
+
+void PortRenderAudio(int16_t *stereo, int samples) {
+  RtlRenderAudio(stereo, samples, 2);
+}
+
 void PortRunFrame(uint32_t buttons) {
   /* Bit 30 tells the game a controller is plugged into port 1. */
   RtlRunFrame((buttons & 0xfff) | (1u << 30));
   /* The game waits for replies from the sound driver, so it must run every
-   * frame. Silent for now; real audio output comes in a later milestone. */
-  RtlTickAudioSilent();
+   * frame; with audio on, PortRenderAudio does that. */
+  if (s_audio_mode == kPortAudio_Silent)
+    RtlTickAudioSilent();
+  else if (s_audio_mode == kPortAudio_Hardware)
+    RtlTickAudioEnvelopes();
 }
 
 void PortRenderSoftware(uint8_t *pixels, size_t pitch) {

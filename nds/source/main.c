@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 #include "nds_timing.h"
+#include "nds_audio.h"
 #include "nds_hud.h"
 #include "nds_render.h"
 #include "smw_port.h"
@@ -21,7 +22,7 @@
 #include "smw_assets_bin.h"
 #endif
 
-#define SMW_NDS_VERSION "0.3.0"
+#define SMW_NDS_VERSION "0.4.0"
 
 void PortPlatformFatal(const char *message) {
   consoleDemoInit(); /* the bottom screen may be showing the HUD */
@@ -124,13 +125,17 @@ int main(void) {
   NdsRenderInit();
   NdsHudInit();
   NdsTimingStart();
+  NdsAudioInit();
 
-  uint32_t frames = 0, last_second = 0;
+  uint32_t frames = 0, last_second = 0, busy_ticks = 0;
 
   for (;;) {
     /* One SNES frame per DS screen refresh (59.8 Hz vs the SNES's 60.1). */
+    const uint32_t t0 = NdsTimingTicks();
     PortRunFrame(NdsHudInput(ReadPad()));
+    NdsAudioFrame();
     NdsRenderCapture(CropTop(PortGameRam()));
+    busy_ticks += NdsTimingTicks() - t0;
 
     swiWaitForVBlank();
     NdsRenderPresent();
@@ -139,8 +144,11 @@ int main(void) {
 
     const uint32_t now = NdsTimingFramesElapsed();
     if (now - last_second >= 60) {
-      NdsHudSetFps(frames * 60 / (now - last_second));
+      /* CPU load: share of the frame time spent before waiting for VBlank
+       * (547 ticks per frame). */
+      NdsHudSetStats(frames * 60 / (now - last_second), busy_ticks * 100 / (547 * frames));
       frames = 0;
+      busy_ticks = 0;
       last_second = now;
     }
   }

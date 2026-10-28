@@ -123,6 +123,7 @@ void RtlSetUploadingApu(bool uploading);
 void RtlApuUpload(const uint8 *p);
 void RtlRenderAudio(int16 *audio_buffer, int samples, int channels);
 void RtlTickAudioSilent(void);  /* smw-nds */
+void RtlTickAudioEnvelopes(void);  /* smw-nds */
 void RtlPushApuState();
 bool RtlRunFrame(uint32 inputs);
 void RtlReadSram();

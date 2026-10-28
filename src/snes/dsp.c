@@ -420,8 +420,36 @@ uint8_t dsp_read(Dsp* dsp, uint8_t adr) {
   return dsp->ram[adr];
 }
 
+/* smw-nds: key-on bits written since the hardware mixer last looked. */
+uint8_t g_dsp_kon_events;
+
+/* smw-nds: one 32 kHz DSP step without sample decoding or mixing, for when
+ * the DS sound hardware plays the voices. Keeps the per-voice envelopes
+ * (ADSR/GAIN) exactly as dsp_cycleChannel does. */
+void dsp_cycleEnvelopeOnly(Dsp* dsp) {
+  for (int ch = 0; ch < 8; ch++) {
+    DspChannel *c = &dsp->channel[ch];
+    if (dsp->reset) {
+      c->adsrState = 4;
+      c->gain = 0;
+    }
+    bool doingDirectGain = c->adsrState != 4 && c->useGain && c->directGain;
+    uint16_t rate = c->adsrState == 4 ? 0 : c->adsrRates[c->adsrState];
+    if (c->adsrState != 4 && !doingDirectGain && rate != 0)
+      c->rateCounter++;
+    if (c->adsrState == 4 || (!doingDirectGain && c->rateCounter >= rate && rate != 0)) {
+      if (c->adsrState != 4) c->rateCounter = 0;
+      dsp_handleGain(dsp, ch);
+    }
+    if (doingDirectGain) c->gain = c->gainValue;
+    dsp->ram[(ch << 4) | 8] = c->gain >> 4;
+  }
+  dsp->evenCycle = !dsp->evenCycle;
+}
+
 void dsp_write(Dsp* dsp, uint8_t adr, uint8_t val) {
   int ch = adr >> 4;
+  if (adr == 0x4c) g_dsp_kon_events |= val;  /* smw-nds */
   switch(adr) {
     case 0x00: case 0x10: case 0x20: case 0x30: case 0x40: case 0x50: case 0x60: case 0x70: {
       dsp->channel[ch].volumeL = val;
@@ -567,11 +595,12 @@ void dsp_write(Dsp* dsp, uint8_t adr, uint8_t val) {
 
 void dsp_getSamples(Dsp* dsp, int16_t* sampleData, int samplesPerFrame) {
   // resample from 534 samples per frame to wanted value
-  double adder = 534.0 / samplesPerFrame;
-  double location = 0.0;
+  // smw-nds: 16.16 fixed point instead of double (the DS has no FPU)
+  uint32_t adder = (534u << 16) / (uint32_t)samplesPerFrame;
+  uint32_t location = 0;
   for(int i = 0; i < samplesPerFrame; i++) {
-    sampleData[i * 2] = dsp->sampleBuffer[((int) location) * 2];
-    sampleData[i * 2 + 1] = dsp->sampleBuffer[((int) location) * 2 + 1];
+    sampleData[i * 2] = dsp->sampleBuffer[(location >> 16) * 2];
+    sampleData[i * 2 + 1] = dsp->sampleBuffer[(location >> 16) * 2 + 1];
     location += adder;
   }
   dsp->sampleOffset = 0;

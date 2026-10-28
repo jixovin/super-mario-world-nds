@@ -6,18 +6,21 @@ native ARM code, and the picture is drawn by the DS's 2D graphics hardware.
 The top screen shows the game; the bottom screen will hold the status bar
 and touch features.
 
-## Current state (v0.3.0)
+## Current state (v0.4.0)
 
 - Runs at full speed (60 fps) on a real DS Lite + R4 (tested through most
   of Yoshi's Island 1).
 - Hardware renderer: SNES tiles, maps, palettes and sprites are converted
   to the DS 2D engine each frame; scanline effects use HBlank DMA.
-- Silent for now (the sound driver runs, but no audio output yet).
+- Music and sound effects: the game's own sound driver runs, and the SNES
+  sound chip's 8 voices are played on the DS's hardware sound channels
+  (samples decoded from the SNES format once and cached). No echo yet.
 - Bottom screen: the original status bar, a large reserve-item box (tap it
   to drop the item) and an FPS counter (tap it to turn it on/off).
 - SNES window effects: message boxes, keyhole and circle wipes.
 - Saves are written to `/_nds/smw-nds/saves/smw.srm` on the SD card.
-- Not yet: audio, mode 7 scenes (some boss fights), translucent effects.
+- Not yet: echo/reverb in the music, mode 7 scenes (some boss fights),
+  translucent effects.
 
 See [the roadmap](ROADMAP.md) for what's next.
 

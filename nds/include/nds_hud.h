@@ -21,7 +21,7 @@ uint32_t NdsHudInput(uint32_t pad);
 /* During VBlank, after the top screen is presented. */
 void NdsHudPresent(void);
 
-/* Shown when the FPS counter is on. */
-void NdsHudSetFps(unsigned fps);
+/* Shown when the FPS counter is on: frames per second and CPU load (%). */
+void NdsHudSetStats(unsigned fps, unsigned cpu_percent);
 
 #endif

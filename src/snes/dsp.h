@@ -93,6 +93,10 @@ void dsp_reset(Dsp* dsp);
 void dsp_cycle(Dsp* dsp);
 uint8_t dsp_read(Dsp* dsp, uint8_t adr);
 void dsp_write(Dsp* dsp, uint8_t adr, uint8_t val);
+/* smw-nds: hardware-mixer support (see dsp.c). */
+extern uint8_t g_dsp_kon_events;
+void dsp_cycleEnvelopeOnly(Dsp* dsp);
+
 void dsp_getSamples(Dsp* dsp, int16_t* sampleData, int samplesPerFrame);
 void dsp_saveload(Dsp *dsp, SaveLoadInfo *sli);
 

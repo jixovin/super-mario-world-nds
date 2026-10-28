@@ -21,6 +21,12 @@ and touch features.
 - **v0.3.0 (Oct 28, 2026):** SNES windows (message boxes were invisible
   before, which looked like a freeze), bottom-screen status bar with a big
   touchable reserve-item box, FPS counter.
+- **v0.4.0 (Oct 28, 2026):** audio. Software emulation of the SNES sound
+  chip took more than a whole frame on the ARM9, so instead the SNES
+  voices are mapped onto DS hardware channels: the game's sound driver
+  and the chip's envelopes run as before, BRR samples are decoded to PCM
+  once (cached), and DS channels follow pitch/volume/pan each frame.
+  Pitch matches the SNES reference exactly; ~60% CPU in YI1 at 60 fps.
 
 ## Next milestones
 
@@ -28,7 +34,7 @@ and touch features.
 |---|---|---|
 | 1 | Real-hardware check | Done for v0.2.0 (60 fps on DS Lite + R4). Saves still to verify. |
 | 2 | Bottom screen HUD | Done in v0.3.0. |
-| 3 | Audio | Music and sound effects, first in Yoshi's Island 1. |
+| 3 | Audio | Done in v0.4.0 (no echo yet). Echo/reverb via DS sound capture is a follow-up. |
 | 4 | Smart camera | Vertical crop follows Mario so nothing important is hidden. |
 | 5 | Remaining SNES effects | Windows (message box, keyhole, circle wipes), colour math (translucent layers), mode 7 (Bowser, Iggy/Larry, Reznor, etc.). |
 | 6 | Touch menu | Options/save menu on the bottom screen. |

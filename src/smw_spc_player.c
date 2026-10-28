@@ -1281,6 +1281,28 @@ static void SmwSpcPlayer_Initialize(SpcPlayer *p_in) {
   Spc_Reset(p);
 }
 
+/* smw-nds: like SmwSpcPlayer_GenerateSamples, but only the DSP envelopes
+ * run (no sample synthesis); the DS sound hardware plays the voices. */
+void SmwSpcPlayer_TickEnvelopes(SpcPlayer *p_in) {
+  SmwSpcPlayer *p = (SmwSpcPlayer *)p_in;
+  int remaining = 534;
+  for (;;) {
+    if (p->timer_cycles >= 64) {
+      Spc_Loop_Part2(p, p->timer_cycles >> 6);
+      p->timer_cycles &= 63;
+    }
+    int n = 64 - p->timer_cycles;
+    if (n > remaining)
+      n = remaining;
+    p->timer_cycles += n;
+    for (int i = 0; i < n; i++)
+      dsp_cycleEnvelopeOnly(p->base.dsp);
+    remaining -= n;
+    if (remaining == 0)
+      break;
+  }
+}
+
 /* smw-nds: advance the sound driver by one 60 Hz frame (534 samples at
  * 32 kHz) without synthesising audio. The game waits on replies from the
  * sound driver, so it must keep running even in silent builds. */
@@ -1328,8 +1350,11 @@ static void SmwSpcPlayer_GenerateSamples(SpcPlayer *p_in) {
   }
 }
 
+uint32_t g_spc_upload_count;  /* smw-nds: lets sample caches notice new data */
+
 static void SmwSpcPlayer_Upload(SpcPlayer *p_in, const uint8_t *data) {
   const uint8 *data_org = data;
+  g_spc_upload_count++;
   SmwSpcPlayer *p = (SmwSpcPlayer *)p_in;
   Dsp_Write(p, FLG, 0x60);
   Dsp_Write(p, KOF, 0xff);

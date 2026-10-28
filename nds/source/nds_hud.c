@@ -30,7 +30,7 @@ enum {
 };
 
 static bool s_show_fps = true;
-static unsigned s_fps;
+static unsigned s_fps, s_cpu;
 static int s_select_frames;
 static Ppu *s_ppu;
 
@@ -116,8 +116,9 @@ void NdsHudOnBg3Tile(unsigned index, const uint32_t *tile) {
   memcpy(&SUB_TILES[index * 8], tile, 32);
 }
 
-void NdsHudSetFps(unsigned fps) {
+void NdsHudSetStats(unsigned fps, unsigned cpu_percent) {
   s_fps = fps;
+  s_cpu = cpu_percent > 99 ? 99 : cpu_percent;
 }
 
 static bool InTiles(int px, int py, int tx, int ty, int tw, int th) {
@@ -133,7 +134,7 @@ uint32_t NdsHudInput(uint32_t pad) {
     const bool in_small_box = tp.px >= 108 && tp.px < 148 && tp.py < kStatusTop + 40;
     if ((in_big_box || in_small_box) && PortGameRam()[0x100] == 0x14)
       s_select_frames = 2;  /* Select drops the reserve item */
-    else if (tp.py >= 176 && tp.px >= 176)
+    else if (tp.py >= 168 && tp.px >= 176)
       s_show_fps = !s_show_fps;
   }
   if (s_select_frames > 0) {
@@ -212,15 +213,15 @@ void NdsHudPresent(void) {
   }
   for (unsigned i = used; i < 32; i++) SUB_OAM[i * 4] = ATTR0_DISABLED;
 
-  /* FPS counter, bottom right. */
-  char text[8] = "      ";
+  /* FPS counter and CPU load, bottom right. */
+  char fps[8] = "   FPS", cpu[8] = "      ";
   if (s_show_fps) {
-    text[0] = (char)('0' + (s_fps / 10) % 10);
-    text[1] = (char)('0' + s_fps % 10);
-    memcpy(text + 2, " FPS", 4);
-  } else {
-    memcpy(text, "   FPS", 6);
+    fps[0] = (char)('0' + (s_fps / 10) % 10);
+    fps[1] = (char)('0' + s_fps % 10);
+    cpu[0] = (char)('0' + s_cpu / 10);
+    cpu[1] = (char)('0' + s_cpu % 10);
+    memcpy(cpu + 2, " CPU", 4);
   }
-  text[6] = 0;
-  Text(25, 23, text);
+  Text(25, 22, cpu);
+  Text(25, 23, fps);
 }

@@ -1,6 +1,9 @@
 // Headless DS test runner built on the melonDS emulation core.
 //   melonds_headless game.nds out_dir step...
 // Set SDDIR=<folder> to give the DS a virtual SD card with that folder's files.
+// Set GRAM=<hex address of g_ram> (from the .map) to enable "mode:XX[:max]",
+// which runs frames until game mode ($7E0100) equals XX.
+// Set WAV=<file> to record the DS's audio output (stereo 16-bit, 48 kHz).
 // Steps: "N" run N frames, "N:a+right" run N frames holding keys,
 //        "shot" save both screens as PPM, "touch:x,y" / "untouch".
 #include <chrono>
@@ -170,6 +173,19 @@ int main(int argc, char **argv) {
   nds.SetupDirectBoot("game.nds");
   nds.Start();
   int frame = 0, shot = 0;
+  FILE *wav = nullptr;
+  uint32_t wav_samples = 0;
+  if (const char *w = getenv("WAV")) {
+    wav = fopen(w, "wb");
+    fwrite("RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0\x80\xbb\0\0\0\xee\x02\0\x04\0\x10\0data\0\0\0\0", 1, 44, wav);
+  }
+  auto drain_audio = [&]() {
+    s16 buf[2048 * 2];
+    int n;
+    while ((n = nds.SPU.ReadOutput(buf, 2048)) > 0) {
+      if (wav) { fwrite(buf, 4, n, wav); wav_samples += n; }
+    }
+  };
   for (int i = 3; i < argc; i++) {
     std::string s = argv[i];
     if (s == "shot") {
@@ -180,6 +196,17 @@ int main(int argc, char **argv) {
     }
     if (s.rfind("touch:", 0) == 0) { int x, y; sscanf(s.c_str() + 6, "%d,%d", &x, &y); nds.TouchScreen(x, y); continue; }
     if (s == "untouch") { nds.ReleaseScreen(); continue; }
+    if (s.rfind("mode:", 0) == 0) {
+      const char *g = getenv("GRAM");
+      unsigned want = 0, max = 3000;
+      sscanf(s.c_str() + 5, "%x:%u", &want, &max);
+      u32 gram = g ? strtoul(g, nullptr, 16) : 0;
+      unsigned k = 0;
+      nds.SetKeyMask(0xFFF);
+      while (gram && k < max && nds.ARM9Read8(gram + 0x100) != want) { nds.RunFrame(); drain_audio(); frame++; k++; }
+      if (k >= max) printf("mode %02x not reached by frame %d\n", want, frame);
+      continue;
+    }
     if (s.rfind("poke:", 0) == 0) {  // poke:addr,value (8-bit write to ARM9 memory)
       u32 a = 0, v = 0;
       sscanf(s.c_str() + 5, "%x,%x", &a, &v);
@@ -203,7 +230,13 @@ int main(int argc, char **argv) {
     int n = atoi(s.substr(0, c).c_str());
     u32 held = c == std::string::npos ? 0 : KeyBits(s.substr(c + 1));
     nds.SetKeyMask(0xFFF & ~held);
-    for (int k = 0; k < n; k++, frame++) nds.RunFrame();
+    for (int k = 0; k < n; k++, frame++) { nds.RunFrame(); drain_audio(); }
+  }
+  if (wav) {
+    uint32_t data = wav_samples * 4, riff = data + 36;
+    fseek(wav, 4, SEEK_SET); fwrite(&riff, 4, 1, wav);
+    fseek(wav, 40, SEEK_SET); fwrite(&data, 4, 1, wav);
+    fclose(wav);
   }
   printf("ran %d frames\n", frame);
   return 0;

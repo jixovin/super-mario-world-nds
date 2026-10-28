@@ -44,6 +44,20 @@ void PortLoadSave(void);
 /* Run one 60 Hz game frame with the given kPortPad_* buttons held. */
 void PortRunFrame(uint32_t buttons);
 
+/* Audio modes. The game's sound driver always runs (the game waits on its
+ * replies); the mode decides what produces the sound:
+ *   kPortAudio_Silent:   nothing.
+ *   kPortAudio_Software: SNES DSP synthesis; call PortRenderAudio exactly
+ *                        once per game frame, after PortRunFrame.
+ *   kPortAudio_Hardware: only the DSP envelopes run inside PortRunFrame;
+ *                        the platform plays the voices itself using
+ *                        PortDsp() / PortSpcRam(). */
+enum { kPortAudio_Silent, kPortAudio_Software, kPortAudio_Hardware };
+void PortSetAudioMode(int mode);
+void PortRenderAudio(int16_t *stereo, int samples);
+struct Dsp *PortDsp(void);
+const uint8_t *PortSpcRam(void);
+
 /* Software-render the current frame into a 256x224 (or 240) XRGB8888
  * buffer. Used by the desktop harness and by the first DS bring-up. */
 void PortRenderSoftware(uint8_t *pixels, size_t pitch);

@@ -25,5 +25,7 @@ typedef struct SpcPlayer {
 
 SpcPlayer *SmwSpcPlayer_Create(void);
 void SmwSpcPlayer_TickSilent(SpcPlayer *p);  /* smw-nds */
+void SmwSpcPlayer_TickEnvelopes(SpcPlayer *p);  /* smw-nds */
+extern uint32_t g_spc_upload_count;  /* smw-nds */
 SpcPlayer *SmasSpcPlayer_Create(void);
 

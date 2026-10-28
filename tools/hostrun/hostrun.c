@@ -86,6 +86,19 @@ static uint32_t ParseButtons(const char *s) {
   return r;
 }
 
+static FILE *g_wav;
+static uint32_t g_wav_samples;
+
+static void RunOneFrame(uint32_t buttons) {
+  PortRunFrame(buttons);
+  if (g_wav) {  /* WAV=<file>: record 534 samples (32 kHz) per frame */
+    int16_t buf[534 * 2];
+    PortRenderAudio(buf, 534);
+    fwrite(buf, 4, 534, g_wav);
+    g_wav_samples += 534;
+  }
+}
+
 int main(int argc, char **argv) {
   if (argc < 4) {
     fprintf(stderr, "usage: hostrun smw_assets.dat out_dir script.txt\n");
@@ -97,12 +110,17 @@ int main(int argc, char **argv) {
   const char *err = PortLoadAssets(assets, size);
   if (err) PortPlatformFatal(err);
   PortInitGame();
+  if (getenv("WAV")) {
+    g_wav = fopen(getenv("WAV"), "wb");
+    fwrite("RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0\0\x7d\0\0\0\xf4\x01\0\x04\0\x10\0data\0\0\0\0", 1, 44, g_wav);
+    PortSetAudioMode(kPortAudio_Software);
+  }
 
   FILE *script = fopen(argv[3], "r");
   if (!script) PortPlatformFatal("cannot read script");
   char line[256];
   int frame = 0, shot = 0;
-  PortRunFrame(0);
+  RunOneFrame(0);
   PortRenderSoftware(g_pixels, 256 * 4);
   frame++;
   while (fgets(line, sizeof(line), script)) {
@@ -166,11 +184,17 @@ int main(int argc, char **argv) {
     const char *rest = strchr(line, ' ');
     uint32_t buttons = rest ? ParseButtons(rest + 1) : 0;
     for (int i = 0; i < n; i++, frame++) {
-      PortRunFrame(buttons);
+      RunOneFrame(buttons);
       PortRenderSoftware(g_pixels, 256 * 4); /* exactly once per frame */
     }
   }
   fclose(script);
+  if (g_wav) {
+    uint32_t data = g_wav_samples * 4, riff = data + 36;
+    fseek(g_wav, 4, SEEK_SET); fwrite(&riff, 4, 1, g_wav);
+    fseek(g_wav, 40, SEEK_SET); fwrite(&data, 4, 1, g_wav);
+    fclose(g_wav);
+  }
   printf("ran %d frames\n", frame);
   return 0;
 }

@@ -772,6 +772,15 @@ void RtlTickAudioSilent(void) {
   RtlApuUnlock();
 }
 
+/* smw-nds: run the sound driver and DSP envelopes for one frame, for the
+ * DS hardware mixer. */
+void RtlTickAudioEnvelopes(void) {
+  RtlApuLock();
+  RtlPopApuState_Locked();
+  SmwSpcPlayer_TickEnvelopes(g_spc_player);
+  RtlApuUnlock();
+}
+
 void RtlRenderAudio(int16 *audio_buffer, int samples, int channels) {
   assert(channels == 2);
   RtlApuLock();
