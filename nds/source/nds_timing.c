@@ -13,7 +13,7 @@ void NdsTimingStart(void) {
   TIMER_CR(2) = TIMER_ENABLE | TIMER_DIV_1024;
 }
 
-static uint32_t ReadTicks(void) {
+uint32_t NdsTimingTicks(void) {
   uint16_t hi, lo;
   do {
     hi = TIMER_DATA(3);
@@ -23,5 +23,5 @@ static uint32_t ReadTicks(void) {
 }
 
 uint32_t NdsTimingFramesElapsed(void) {
-  return (uint32_t)(((uint64_t)ReadTicks() * 100u) / 54707u);
+  return (uint32_t)(((uint64_t)NdsTimingTicks() * 100u) / 54707u);
 }

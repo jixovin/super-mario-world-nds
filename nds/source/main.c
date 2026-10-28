@@ -106,13 +106,14 @@ int main(void) {
   NdsTimingStart();
 
   uint32_t frames_run = 0, shown = 0, logic = 0, second_mark = 0;
-  unsigned fps_render = 0, fps_logic = 0;
+  uint32_t logic_ticks = 0, render_ticks = 0;
 
   for (;;) {
     /* Run game logic to catch up with real time (60 Hz), at most 4 frames
      * per drawn picture so a slow frame cannot snowball. */
     const uint32_t due = NdsTimingFramesElapsed();
     uint32_t steps = 0;
+    const uint32_t t0 = NdsTimingTicks();
     do {
       PortRunFrame(ReadPad());
       frames_run++;
@@ -120,16 +121,26 @@ int main(void) {
     } while (frames_run < due && ++steps < 4);
     if (frames_run < due) frames_run = due;
 
+    const uint32_t t1 = NdsTimingTicks();
     NdsVideoRenderFrame(PortGameRam());
+    const uint32_t t2 = NdsTimingTicks();
+    logic_ticks += t1 - t0;
+    render_ticks += t2 - t1;
     shown++;
 
     if (due - second_mark >= 60) {
-      fps_render = shown;
-      fps_logic = logic;
+      /* Average milliseconds per game frame and per drawn picture
+       * (1 tick = 0.0306 ms; x306/10000). */
+      iprintf("\x1b[5;0Hdraw %2lu fps  game %2lu fps   ", shown, logic);
+      iprintf("\x1b[6;0Hlogic %3lu.%lu ms/frame      ",
+              (logic_ticks * 306 / 1000) / (logic ? logic : 1) / 10,
+              (logic_ticks * 306 / 1000) / (logic ? logic : 1) % 10);
+      iprintf("\x1b[7;0Hdraw  %3lu ms/picture      ",
+              (render_ticks * 306 / 10000) / (shown ? shown : 1));
+      iprintf("\x1b[8;0Hmode %02X                     ", PortGameRam()[0x100]);
       shown = logic = 0;
+      logic_ticks = render_ticks = 0;
       second_mark = due;
-      iprintf("\x1b[5;0Hdraw %2u fps  game %2u fps   ", fps_render, fps_logic);
-      iprintf("\x1b[6;0Hmode %02X                     ", PortGameRam()[0x100]);
     }
 
     /* Ahead of real time: sleep until the next screen refresh. */

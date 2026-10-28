@@ -6,6 +6,9 @@
 /* Start counting real time with hardware timers 2 and 3. */
 void NdsTimingStart(void);
 
+/* Raw 32728.5 Hz tick count (about 30.6 microseconds per tick). */
+uint32_t NdsTimingTicks(void);
+
 /* Number of 59.8261 Hz screen frames since NdsTimingStart(). */
 uint32_t NdsTimingFramesElapsed(void);
 
