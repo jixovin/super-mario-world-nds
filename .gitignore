@@ -19,3 +19,5 @@
 # Local secrets (never commit)
 .github-token
 *.token
+/nds/*.nds
+/nds/*.elf

@@ -1,6 +1,6 @@
 @echo off
 rem Double-click to build the DS game with your installed devkitPro.
-rem Output: nds\build\smw-nds.nds  (copy it to your R4 microSD card)
+rem Output: nds\smw-nds.nds  (copy it to your R4 microSD card)
 setlocal
 set "MSYS_BASH=C:\devkitPro\msys2\usr\bin\bash.exe"
 if not exist "%MSYS_BASH%" (
@@ -14,6 +14,6 @@ if errorlevel 1 (
   echo BUILD FAILED - copy the messages above and send them to Claude.
 ) else (
   echo.
-  echo BUILD OK: %~dp0nds\build\smw-nds.nds
+  echo BUILD OK: %~dp0nds\smw-nds.nds
 )
 pause

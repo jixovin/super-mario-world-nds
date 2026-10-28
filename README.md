@@ -29,7 +29,7 @@ cd nds
 make
 ```
 
-The output is `nds/build/smw-nds.nds`. Copy that file to the microSD card used
+The output is `nds/smw-nds.nds`. Copy that file to the microSD card used
 by the R4 and launch it from the DS Lite. The current target is a screen/input
 diagnostic, not the game. Once devkitPro is installed, this executable is the
 first hardware check before integrating SMW.
