@@ -26,3 +26,4 @@
 /nds/data/*.bin
 smw_assets.dat
 *.bundle
+__pycache__/
