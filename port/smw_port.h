@@ -37,12 +37,25 @@ const char *PortLoadAssets(const uint8_t *data, size_t length);
 /* Start the game with no ROM attached (native code only). */
 void PortInitGame(void);
 
+/* Load saves/smw.srm (relative to the current directory) if it exists.
+ * The game writes the file itself when it saves. */
+void PortLoadSave(void);
+
 /* Run one 60 Hz game frame with the given kPortPad_* buttons held. */
 void PortRunFrame(uint32_t buttons);
 
 /* Software-render the current frame into a 256x224 (or 240) XRGB8888
  * buffer. Used by the desktop harness and by the first DS bring-up. */
 void PortRenderSoftware(uint8_t *pixels, size_t pitch);
+
+/* Hardware-renderer support: run the SNES frame's per-line pass (HDMA and
+ * the status-bar IRQ run as on the SNES) calling hook(line) for lines
+ * 0..224 instead of drawing pixels. Line L (1..224) is screen row L-1. */
+typedef void PortLineHook(int line);
+void PortRunPpuLines(PortLineHook *hook);
+
+/* The SNES PPU state (registers, VRAM, CGRAM, OAM) the game writes to. */
+struct Ppu *PortPpu(void);
 
 /* Direct access to game RAM ($7E0000-$7FFFFF), for HUD/bottom-screen use. */
 uint8_t *PortGameRam(void);

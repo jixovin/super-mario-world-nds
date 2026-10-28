@@ -3,6 +3,7 @@
 #include "smw_port.h"
 
 #include <stdarg.h>
+#include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -50,7 +51,7 @@ void Warning(const char *error) {
 void RtlApuLock(void) {}
 void RtlApuUnlock(void) {}
 
-void MkDir(const char *s) { (void)s; }
+void MkDir(const char *s) { mkdir(s, 0777); }
 
 const char *PortLoadAssets(const uint8_t *data, size_t length) {
   static const char kAssetsSig[] = { kAssets_Sig };
@@ -89,6 +90,11 @@ void PortInitGame(void) {
   g_spc_player->initialize(g_spc_player);
 }
 
+void PortLoadSave(void) {
+  MkDir("saves");
+  RtlReadSram();
+}
+
 void PortRunFrame(uint32_t buttons) {
   /* Bit 30 tells the game a controller is plugged into port 1. */
   RtlRunFrame((buttons & 0xfff) | (1u << 30));
@@ -100,6 +106,18 @@ void PortRunFrame(uint32_t buttons) {
 void PortRenderSoftware(uint8_t *pixels, size_t pitch) {
   PpuBeginDrawing(g_my_ppu, pixels, pitch, 0);
   g_rtl_game_info->draw_ppu_frame();
+}
+
+extern void (*g_smw_nds_line_hook)(int line);
+
+void PortRunPpuLines(PortLineHook *hook) {
+  g_smw_nds_line_hook = hook;
+  g_rtl_game_info->draw_ppu_frame();
+  g_smw_nds_line_hook = NULL;
+}
+
+struct Ppu *PortPpu(void) {
+  return g_my_ppu;
 }
 
 uint8_t *PortGameRam(void) {

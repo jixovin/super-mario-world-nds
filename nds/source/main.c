@@ -9,16 +9,18 @@
 #include <filesystem.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "nds_timing.h"
-#include "nds_video.h"
+#include "nds_render.h"
 #include "smw_port.h"
 
 #ifdef HAVE_EMBEDDED_ASSETS
 #include "smw_assets_bin.h"
 #endif
 
-#define SMW_NDS_VERSION "0.1.0"
+#define SMW_NDS_VERSION "0.2.0"
 
 void PortPlatformFatal(const char *message) {
   iprintf("\x1b[2J\x1b[31;1mERROR\x1b[39m\n\n%s\n", message);
@@ -83,9 +85,16 @@ static uint32_t ReadPad(void) {
   return pad;
 }
 
+/* Which 192 of the 224 SNES lines to show. In levels (game mode $14) the
+ * top 32 lines are the status bar, which moves to the bottom screen;
+ * elsewhere the picture is centred. */
+static unsigned CropTop(const uint8_t *game_ram) {
+  return game_ram[0x100] == 0x14 ? 32 : 16;
+}
+
 int main(void) {
   defaultExceptionHandler();
-  NdsVideoInit();
+  consoleDemoInit(); /* bottom screen text for now */
 
   iprintf("Super Mario World DS v%s\n", SMW_NDS_VERSION);
   iprintf("Native port - not an emulator\n\n");
@@ -103,48 +112,47 @@ int main(void) {
   if (error) PortPlatformFatal(error);
 
   PortInitGame();
+  if (have_fat) {
+    /* Saves go to /_nds/smw-nds/saves/smw.srm on the SD card. */
+    mkdir("/_nds", 0777);
+    mkdir("/_nds/smw-nds", 0777);
+    if (chdir("/_nds/smw-nds") == 0)
+      PortLoadSave();
+  }
+  NdsRenderInit();
   NdsTimingStart();
 
-  uint32_t frames_run = 0, shown = 0, logic = 0, second_mark = 0;
-  uint32_t logic_ticks = 0, render_ticks = 0;
+  uint32_t frames = 0, last_vblank_count = 0;
+  uint32_t logic_ticks = 0, upload_ticks = 0;
 
   for (;;) {
-    /* Run game logic to catch up with real time (60 Hz), at most 4 frames
-     * per drawn picture so a slow frame cannot snowball. */
-    const uint32_t due = NdsTimingFramesElapsed();
-    uint32_t steps = 0;
+    /* One SNES frame per DS screen refresh (59.8 Hz vs the SNES's 60.1). */
     const uint32_t t0 = NdsTimingTicks();
-    do {
-      PortRunFrame(ReadPad());
-      frames_run++;
-      logic++;
-    } while (frames_run < due && ++steps < 4);
-    if (frames_run < due) frames_run = due;
-
+    PortRunFrame(ReadPad());
+    NdsRenderCapture(CropTop(PortGameRam()));
     const uint32_t t1 = NdsTimingTicks();
-    NdsVideoRenderFrame(PortGameRam());
+
+    swiWaitForVBlank();
     const uint32_t t2 = NdsTimingTicks();
+    NdsRenderPresent();
+    const uint32_t t3 = NdsTimingTicks();
+
     logic_ticks += t1 - t0;
-    render_ticks += t2 - t1;
-    shown++;
+    upload_ticks += t3 - t2;
+    frames++;
 
-    if (due - second_mark >= 60) {
-      /* Average milliseconds per game frame and per drawn picture
-       * (1 tick = 0.0306 ms; x306/10000). */
-      iprintf("\x1b[5;0Hdraw %2lu fps  game %2lu fps   ", shown, logic);
-      iprintf("\x1b[6;0Hlogic %3lu.%lu ms/frame      ",
-              (logic_ticks * 306 / 1000) / (logic ? logic : 1) / 10,
-              (logic_ticks * 306 / 1000) / (logic ? logic : 1) % 10);
-      iprintf("\x1b[7;0Hdraw  %3lu ms/picture      ",
-              (render_ticks * 306 / 10000) / (shown ? shown : 1));
+    const uint32_t now = NdsTimingFramesElapsed();
+    if (now - last_vblank_count >= 60) {
+      /* 1 tick = 0.0306 ms. Game speed is 60 when every frame fits. */
+      iprintf("\x1b[5;0Hgame speed %2lu fps         ", frames * 60 / (now - last_vblank_count));
+      iprintf("\x1b[6;0Hlogic  %2lu.%lu ms/frame      ",
+              logic_ticks * 306 / 1000 / frames / 10, logic_ticks * 306 / 1000 / frames % 10);
+      iprintf("\x1b[7;0Hupload %2lu.%lu ms/frame      ",
+              upload_ticks * 306 / 1000 / frames / 10, upload_ticks * 306 / 1000 / frames % 10);
       iprintf("\x1b[8;0Hmode %02X                     ", PortGameRam()[0x100]);
-      shown = logic = 0;
-      logic_ticks = render_ticks = 0;
-      second_mark = due;
+      frames = 0;
+      logic_ticks = upload_ticks = 0;
+      last_vblank_count = now;
     }
-
-    /* Ahead of real time: sleep until the next screen refresh. */
-    if (frames_run > NdsTimingFramesElapsed())
-      swiWaitForVBlank();
   }
 }

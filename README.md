@@ -1,49 +1,52 @@
-# Super Mario World DS port
+# Super Mario World DS
 
-A native Nintendo DS port of *Super Mario World*, aimed first at DS Lite and
-R4 flashcart testing. The planned layout uses the top screen for gameplay and
-the lower screen for a compact HUD, map, and useful status information.
+A native Nintendo DS port of *Super Mario World*, made for the DS Lite with
+an R4-style flashcart. It is not an emulator: the game's own logic runs as
+native ARM code, and the picture is drawn by the DS's 2D graphics hardware.
+The top screen shows the game; the bottom screen will hold the status bar
+and touch features.
 
-## Current state
+## Current state (v0.2.0)
 
-The initial dual-screen/input diagnostic boots on a DS Lite with an R4. The
-upstream analyzer is installed and has generated 65816-to-C game code locally
-from the supplied USA ROM. That generated code is not yet linked into the NDS
-target or playable. The upstream desktop runtime depends on SDL/OpenGL and
-host-side services, so the next step is identifying and replacing the minimum
-runtime pieces needed to boot the original game logic on ARM9. The Windows
-executable supplied as a reference cannot run on a DS. A full generated ARM
-code set is about 9.1 MB, larger than the DS's 4 MB main RAM; a smaller
-reset-vector build is about 1.24 MB and is being evaluated as the first native
-runtime experiment. See the roadmap for measurements and caveats.
+- Boots to the title screen, menus, overworld and levels at full speed
+  (60 fps) in the melonDS emulator. Real DS Lite testing in progress.
+- Hardware renderer: SNES tiles, maps, palettes and sprites are converted
+  to the DS 2D engine each frame; scanline effects use HBlank DMA.
+- Silent for now (the sound driver runs, but no audio output yet).
+- Saves are written to `/_nds/smw-nds/saves/smw.srm` on the SD card.
+- Not yet: status bar on the bottom screen, touch controls, mode 7 scenes
+  (some boss fights), window effects (message box shape, circle wipes).
 
-See [the roadmap](ROADMAP.md) for the staged plan and estimates.
+See [the roadmap](ROADMAP.md) for what's next.
 
-## Build the DS bring-up target
+## How it works
 
-Install the official devkitPro NDS Development package, including devkitARM,
-libnds, and `ndstool`. In a devkitPro/MSYS2 terminal, from this directory:
+| Folder | What it is |
+|---|---|
+| `src/` | [snesrev/smw](https://github.com/snesrev/smw) (MIT): a complete C reimplementation of the game logic. DS changes are marked `smw-nds`. |
+| `port/` | Platform-neutral glue: game data, input, frame stepping. |
+| `nds/` | DS program: entry point, timing, hardware renderer. |
+| `assets/` | snesrev's tool that extracts graphics/levels from **your own ROM**. |
+| `tools/hostrun/` | Desktop test harness: runs the same game core with scripted input and saves screenshots. |
+| `tools/dstest/` | Headless DS test runner built on the melonDS core. |
 
-```sh
-cd nds
-make
-```
+## Building
 
-The output is `nds/smw-nds.nds`. Copy that file to the microSD card used
-by the R4 and launch it from the DS Lite. The current target is a screen/input
-diagnostic, not the game. Once devkitPro is installed, this executable is the
-first hardware check before integrating SMW.
+1. Install devkitPro's **NDS Development** package (Windows: to `C:\devkitPro`)
+   and Python 3.
+2. Copy your Super Mario World (USA) ROM to `roms\smw.sfc`
+   (unheadered, CRC32 `B19ED489`).
+3. Double-click `build.bat`. The first run extracts the game data from your
+   ROM into `nds\data\` (kept on your PC only).
+4. Copy `nds\smw-nds.nds` to your flashcart's microSD card.
 
-## Source and ROM handling
+The GitHub Actions build checks that everything compiles. Because it never
+sees a ROM, its `.nds` has no game data built in and looks for
+`smw_assets.dat` on the SD card instead.
 
-The local `reference/` directory contains a separate checkout of
-[SuperMarioWorldRecomp v0.15.1](https://github.com/mstan/SuperMarioWorldRecomp)
-and is intentionally excluded from this repository. Its code uses the
-[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).
-The upstream recompiler can generate C from a legally obtained USA `.sfc` ROM,
-but generated game code and the ROM are local build inputs and must not be
-committed here. This repository does not include Nintendo game data, the ROM,
-generated ROM-derived C, or the upstream checkout.
+## ROM and copyright
 
-This is an independent homebrew project and is not affiliated with Nintendo.
-
+This repository contains no Nintendo data: no ROM, no extracted graphics,
+levels or music, and no `.nds` built with game data. You need your own
+legally obtained copy of the game. This is an independent homebrew project
+and is not affiliated with Nintendo.

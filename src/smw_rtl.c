@@ -64,6 +64,10 @@ void UploadOAMBuffer() {  // 008449
 }
 
 
+/* smw-nds: when set, called for each line instead of software-rendering it,
+ * so the DS renderer can record per-line PPU state (scroll splits, HDMA). */
+void (*g_smw_nds_line_hook)(int line);
+
 void SmwDrawPpuFrame(void) {
   SimpleHdma hdma_chans[3];
 
@@ -78,7 +82,10 @@ void SmwDrawPpuFrame(void) {
   int trigger = g_snes->vIrqEnabled ? g_snes->vTimer + 1 : -1;
 
   for (int i = 0; i <= 224; i++) {
-    ppu_runLine(g_ppu, i);
+    if (g_smw_nds_line_hook)
+      g_smw_nds_line_hook(i);
+    else
+      ppu_runLine(g_ppu, i);
     SimpleHdma_DoLine(&hdma_chans[0]);
     SimpleHdma_DoLine(&hdma_chans[1]);
     SimpleHdma_DoLine(&hdma_chans[2]);
