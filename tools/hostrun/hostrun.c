@@ -12,6 +12,9 @@
 #include <string.h>
 
 #include "smw_port.h"
+#include "snes/ppu.h"
+
+extern Ppu *g_my_ppu;
 
 void PortPlatformFatal(const char *message) {
   fprintf(stderr, "FATAL: %s\n", message);
@@ -87,6 +90,21 @@ int main(int argc, char **argv) {
       snprintf(path, sizeof(path), "%s/shot%02d_f%05d.ppm", argv[2], shot++, frame);
       WritePpm(path, 224);
       printf("wrote %s\n", path);
+      continue;
+    }
+    if (strncmp(line, "regs", 4) == 0) {  /* PPU registers after the frame */
+      Ppu *p = g_my_ppu;
+      printf("frame %d: inidisp=%02x bgmode=%02x obsel=%02x mosaic=%02x bgsc=%02x,%02x,%02x,%02x "
+             "nba=%04x main=%02x sub=%02x win=%02x/%02x cgwsel=%02x cgadsub=%02x "
+             "fixed=%04x setini=%02x w1=%d-%d w2=%d-%d wsel=%06x\n  scroll:",
+             frame, p->inidisp, p->bgmode, p->obsel, p->mosaic, p->bgXsc[0], p->bgXsc[1],
+             p->bgXsc[2], p->bgXsc[3], p->bgTileAdr, p->screenEnabled[0], p->screenEnabled[1],
+             p->screenWindowed[0], p->screenWindowed[1], p->cgwsel, p->cgadsub, p->fixedColor,
+             p->setini, p->window1left, p->window1right, p->window2left, p->window2right,
+             (unsigned)p->windowsel);
+      for (int i = 0; i < 4; i++) printf(" bg%d=%d,%d", i + 1, p->hScroll[i], p->vScroll[i]);
+      printf(" cgram0=%04x", p->cgram[0]);
+      printf("\n");
       continue;
     }
     if (strncmp(line, "ram", 3) == 0) {  /* "ram 13 109 1df5": print bytes */

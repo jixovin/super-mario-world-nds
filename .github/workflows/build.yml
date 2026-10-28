@@ -2,7 +2,7 @@ name: Build NDS
 
 on:
   push:
-    branches-ignore: [ci-logs, toolchain, make-toolchain]
+    branches-ignore: [ci-logs, toolchain, toolchain-log, make-toolchain]
   pull_request:
   workflow_dispatch:
 
