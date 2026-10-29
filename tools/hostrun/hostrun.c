@@ -12,6 +12,8 @@
 #include <string.h>
 
 #include "smw_port.h"
+#include "util.h"
+MemBlk FindInAssetArray(int asset, int idx);
 #include "snes/ppu.h"
 
 extern Ppu *g_my_ppu;
@@ -26,17 +28,37 @@ static void DumpLineHook(int line) {
     if (line == 1 || memcmp(r, g_prev_regs, PPU_SAVESTATE_REGS_SIZE)) {
       Ppu *p = g_ppu;
       printf(" line %3d: inidisp=%02x mode=%02x main=%02x sub=%02x mwin=%02x swin=%02x wsel=%06x "
-             "w1=%d-%d w2=%d-%d wlog=%04x cgwsel=%02x cgadsub=%02x fixed=%04x bg3=%d,%d bg1=%d,%d\n",
+             "w1=%d-%d w2=%d-%d wlog=%04x cgwsel=%02x cgadsub=%02x fixed=%04x bg3=%d,%d bg1=%d,%d m7=%d,%d,%d,%d,%d,%d,%d,%d sel=%02x\n",
              line, p->inidisp, p->bgmode, p->screenEnabled[0], p->screenEnabled[1],
              p->screenWindowed[0], p->screenWindowed[1], (unsigned)p->windowsel,
              p->window1left, p->window1right, p->window2left, p->window2right, p->wbgobjlog,
              p->cgwsel, p->cgadsub, p->fixedColor, p->hScroll[2], p->vScroll[2],
-             p->hScroll[0], p->vScroll[0]);
+             p->hScroll[0], p->vScroll[0], p->m7matrix[0], p->m7matrix[1], p->m7matrix[2],
+             p->m7matrix[3], p->m7matrix[4], p->m7matrix[5], p->m7matrix[6], p->m7matrix[7], p->m7sel);
       memcpy(g_prev_regs, r, PPU_SAVESTATE_REGS_SIZE);
     }
   }
   ppu_runLine(g_ppu, line);
 }
+
+/* "stat": distinct per-line register combinations seen over many frames. */
+typedef struct StatKey { uint8_t mode, main, sub, cgwsel, cgadsub, mwin, swin, m7sel; uint16_t fixed, nba; } StatKey;
+static StatKey g_stat_keys[256];
+static int g_stat_count[256], g_stat_n;
+static void StatLineHook(int line) {
+  if (line >= 1) {
+    const Ppu *p = g_ppu;
+    StatKey k = {p->bgmode, p->screenEnabled[0], p->screenEnabled[1], p->cgwsel, p->cgadsub,
+                 p->screenWindowed[0], p->screenWindowed[1], p->m7sel, p->fixedColor, p->bgTileAdr};
+    int i;
+    for (i = 0; i < g_stat_n; i++) if (!memcmp(&g_stat_keys[i], &k, sizeof(k))) break;
+    if (i == g_stat_n && g_stat_n < 256) g_stat_keys[g_stat_n++] = k;
+    if (i < 256) g_stat_count[i]++;
+  }
+  ppu_runLine(g_ppu, line);
+}
+
+extern uint16_t g_smw_nds_force_level;
 
 void PortPlatformFatal(const char *message) {
   fprintf(stderr, "FATAL: %s\n", message);
@@ -137,6 +159,35 @@ int main(int argc, char **argv) {
       snprintf(path, sizeof(path), "%s/shot%02d_f%05d.ppm", argv[2], shot++, frame);
       WritePpm(path, 224);
       printf("wrote %s\n", path);
+      continue;
+    }
+    if (strncmp(line, "levelmodes", 10) == 0) {  /* level number -> header level mode */
+      for (int r = 0; r < 0x200; r++) {
+        MemBlk b = FindInAssetArray(43, r);
+        if (b.size > 2 && (b.ptr[1] & 0x1f) != 0) printf(" lvl %03x mode %02x\n", r, b.ptr[1] & 0x1f);
+      }
+      continue;
+    }
+    if (strncmp(line, "level ", 6) == 0) {  /* "level XXX": entering a level loads level number XXX */
+      g_smw_nds_force_level = 0x8000 | (uint16_t)strtoul(line + 6, NULL, 16);
+      continue;
+    }
+    if (strncmp(line, "stat ", 5) == 0) {  /* "stat N [buttons]": run N frames, print register combos */
+      int n = atoi(line + 5);
+      const char *rest = strchr(line + 5, ' ');
+      const uint32_t buttons = rest ? ParseButtons(rest + 1) : 0;
+      g_stat_n = 0;
+      memset(g_stat_count, 0, sizeof(g_stat_count));
+      for (int i = 0; i < n; i++, frame++) {
+        RunOneFrame(buttons);
+        PpuBeginDrawing(g_my_ppu, g_pixels, 256 * 4, 0);
+        PortRunPpuLines(&StatLineHook);
+      }
+      for (int i = 0; i < g_stat_n; i++) {
+        const StatKey *k = &g_stat_keys[i];
+        printf(" stat lines=%6d mode=%02x main=%02x sub=%02x cgwsel=%02x cgadsub=%02x mwin=%02x swin=%02x m7sel=%02x fixed=%04x nba=%04x\n",
+               g_stat_count[i], k->mode, k->main, k->sub, k->cgwsel, k->cgadsub, k->mwin, k->swin, k->m7sel, k->fixed, k->nba);
+      }
       continue;
     }
     if (strncmp(line, "lines", 5) == 0) {

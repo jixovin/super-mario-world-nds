@@ -47,10 +47,19 @@ enum {
 #define VRAM_BG_MAPS    ((uint32_t *)0x06010000)  /* 32 KB */
 #define VRAM_BG3_TILES  ((uint32_t *)0x06020000)  /* 32 KB */
 #define VRAM_OBJ_TILES  ((uint32_t *)0x06400000)  /* 32 KB */
-enum { kRegBg, kRegMaps, kRegBg3, kRegObj, kRegions };
-static const uint32_t kRegionChunks[kRegions] = {2048, 1024, 1024, 1024};
+#define VRAM_M7_MAP     ((uint32_t *)0x06018000)  /* 16 KB, map base 16 */
+#define VRAM_M7_TILES   ((uint32_t *)0x06028000)  /* 16 KB, tile base 10 */
+enum { kRegBg, kRegMaps, kRegBg3, kRegObj, kRegM7Map, kRegM7Tiles, kRegions };
+static const uint32_t kRegionChunks[kRegions] = {2048, 1024, 1024, 1024, 512, 512};
 static uint32_t s_mir_bg[16384], s_mir_maps[8192], s_mir_bg3[8192], s_mir_obj[8192];
+static uint32_t s_mir_m7map[4096], s_mir_m7tiles[4096];
 static uint32_t s_upload[kRegions][2048 / 32];  /* chunks to copy at VBlank */
+
+/* Mode 7 (some boss rooms): SNES VRAM words 0-0x3fff hold a 128x128 map
+ * (low bytes) and 256 8bpp tiles (high bytes), the same format as a DS
+ * rotation background, so they are just de-interleaved into
+ * VRAM_M7_MAP/VRAM_M7_TILES. Only done while mode 7 is in use. */
+static bool s_m7_active;
 #define DS_BG_TILES   s_mir_bg
 #define DS_BG_MAPS    ((uint16_t *)s_mir_maps)
 #define DS_BG3_TILES  s_mir_bg3
@@ -68,6 +77,8 @@ typedef struct LineRegs {
   uint8_t inidisp, bgmode, main, sub, cgwsel, cgadsub, mosaic;
   uint8_t main_win, sub_win, w1l, w1r, w2l, w2r;
   uint32_t windowsel;
+  int16_t m7[8];   /* mode 7: matrix a, b, c, d, centre x, y, scroll h, v */
+  uint8_t m7sel;
 } LineRegs;
 
 static LineRegs s_lines[kSnesRows];
@@ -75,9 +86,21 @@ static Ppu *s_ppu;
 
 /* Per-line tables read by HBlank DMA; one is displayed while the other is
  * filled. Entry 0 is written directly at VBlank, entries 1..192 by DMA. */
-static uint16_t s_scroll[2][kDsRows + 1][8] __attribute__((aligned(32)));
+/* Per line: BG0-3 H/V offsets (8 halfwords, written to 0x04000010), and in
+ * mode 7 frames also the BG2 and BG3 rotation registers (0x04000020-3F), so
+ * every line gets exactly the SNES mode 7 start position. */
+enum { kLineHalfwords = 24 };
+static uint16_t s_scroll[2][(kDsRows + 1) * kLineHalfwords] __attribute__((aligned(32)));
+static uint8_t s_line_words[2];  /* 32-bit words per line DMA'd: 4, or 12 for mode 7 */
+/* Line y of table t (lines are packed: the DMA reads them back to back). */
+static inline uint16_t *ScrollRow(int t, int y) { return &s_scroll[t][y * s_line_words[t] * 2]; }
 static uint16_t s_backdrop[2][kDsRows + 1] __attribute__((aligned(32)));
 static uint32_t s_winpos[2][kDsRows + 1] __attribute__((aligned(32)));
+/* Mode 7 frames only: DISPCNT per line (DMA3), since SNES mode 7 rooms can
+ * switch between mode 7 and mode 1 part-way down the picture (Reznor). */
+static uint32_t s_dispcnt[2][kDsRows + 1] __attribute__((aligned(32)));
+static uint8_t s_rowline[2][kDsRows + 1];  /* SNES line shown on each DS line */
+static bool s_rowtext[2][kDsRows + 1];     /* mode 7 frames: a mode 1 line */
 static int s_table;
 
 static uint16_t s_vram_shadow[0x8000];   /* SNES VRAM as of the last capture */
@@ -124,7 +147,17 @@ void NdsRenderInit(void) {
   irqEnable(IRQ_VCOUNT);
 }
 
+#ifdef SMW_NDS_TEST
+/* Test builds: tools/dstest can have snesrev's software renderer draw the
+ * same frame into g_test_ref (XRGB, 256x240) to compare with the DS. */
+volatile uint8_t g_test_ref_on, g_test_ref_crop;
+uint32_t g_test_ref[256 * 240];
+#endif
+
 static void CaptureLine(int line) {
+#ifdef SMW_NDS_TEST
+  if (g_test_ref_on) ppu_runLine(s_ppu, line);
+#endif
   if (line < 1 || line > kSnesRows) return;
   const Ppu *p = s_ppu;
   LineRegs *l = &s_lines[line - 1];
@@ -145,6 +178,10 @@ static void CaptureLine(int line) {
   l->w2l = p->window2left;
   l->w2r = p->window2right;
   l->windowsel = p->windowsel;
+  if ((p->bgmode & 7) == 7) {
+    memcpy(l->m7, p->m7matrix, sizeof(l->m7));
+    l->m7sel = p->m7sel;
+  }
 }
 
 
@@ -172,6 +209,7 @@ static void FindChanges(void) {
     s_full_refresh = true;
     s_last_obsel = p->obsel;
     s_last_tile_adr = p->bgTileAdr;
+    s_maps_full_refresh = true;
   }
   for (int i = 0; i < 3; i++) {
     if (p->bgXsc[i] != s_last_bgxsc[i]) {
@@ -202,7 +240,7 @@ static void ConvertBlock(uint32_t blk) {
   const uint32_t obj2 = PPU_objTileAdr2(p) & 0x7fff;
 
   /* 4bpp view, for BG1/BG2. */
-  if (blk == ((bg12_base / 16 + kBlankTile) & 2047))
+  if (bg12_base % 0x2000 == 0 && blk == ((bg12_base / 16 + kBlankTile) & 2047))
     memset(&DS_BG_TILES[blk * 8], 0, 32);
   else
     Convert4bpp(&vram[w], &DS_BG_TILES[blk * 8]);
@@ -216,6 +254,17 @@ static void ConvertBlock(uint32_t blk) {
     Convert2bpp(&vram[w + 8], &DS_BG3_TILES[(i + 1) * 8]);
     MarkUpload(kRegBg3, i);
     MarkUpload(kRegBg3, i + 1);
+  }
+
+  /* Mode 7 view: 16 map bytes and 16 tile bytes per block. */
+  if (s_m7_active && blk < 1024) {
+    uint8_t *map = (uint8_t *)s_mir_m7map + w, *tiles = (uint8_t *)s_mir_m7tiles + w;
+    for (int i = 0; i < 16; i++) {
+      map[i] = (uint8_t)vram[w + i];
+      tiles[i] = (uint8_t)(vram[w + i] >> 8);
+    }
+    MarkUpload(kRegM7Map, blk >> 1);
+    MarkUpload(kRegM7Tiles, blk >> 1);
   }
 
   /* Sprite tiles: SNES grid is 16 tiles wide, DS 2D grid is 32 wide. */
@@ -232,12 +281,20 @@ static void ConvertBlock(uint32_t blk) {
 
 /* ---- tile maps ------------------------------------------------------ */
 
-static inline uint16_t MapEntry(uint16_t e, uint16_t pal_add) {
-  return (e & 0x3ff) | ((e >> 4) & 0xc00) | ((((e >> 10) & 7) + pal_add) << 12);
+static inline uint16_t MapEntry(uint16_t e, uint16_t pal_add, uint16_t tile_add) {
+  return (((e & 0x3ff) + tile_add) & 0x3ff) | ((e >> 4) & 0xc00) | ((((e >> 10) & 7) + pal_add) << 12);
 }
 
+/* SNES BG1 tiles normally start at a 16 KB boundary of video memory, like
+ * DS tile bases. In the mode 7 rooms they start 8 KB past one (at 56 KB);
+ * then DS BG0 uses the 48 KB base with tile numbers shifted by 256, and
+ * BG1 is not split by priority (that needs a blank tile). */
+static uint16_t s_bg1_tile_add;
+static uint8_t s_bg1_tile_base;
+
 /* SNES and DS order 32x32 map screens the same way for every map size. */
-static void ConvertMap(int layer, uint16_t *dst_a, uint16_t *dst_b, uint16_t pal_add) {
+static void ConvertMap(int layer, uint16_t *dst_a, uint16_t *dst_b, uint16_t pal_add,
+                       uint16_t tile_add) {
   const Ppu *p = s_ppu;
   const uint32_t base = PPU_bgTilemapAdr(p, layer);
   const int screens = (PPU_bgTilemapWider(p, layer) ? 2 : 1) * (PPU_bgTilemapHigher(p, layer) ? 2 : 1);
@@ -249,7 +306,7 @@ static void ConvertMap(int layer, uint16_t *dst_a, uint16_t *dst_b, uint16_t pal
       continue;
     }
     const uint16_t e = s_vram_shadow[(base + i) & 0x7fff];
-    const uint16_t d = MapEntry(e, pal_add);
+    const uint16_t d = MapEntry(e, pal_add, tile_add);
     if (dst_b) {  /* split by the SNES priority bit */
       const bool hi = e & 0x2000;
       dst_a[i] = hi ? d : blank;
@@ -269,13 +326,17 @@ static uint16_t MapSizeBits(int layer) {
 
 /* ---- sprites -------------------------------------------------------- */
 
-static void UpdateSprites(unsigned crop_top, const uint8_t prio_map[4]) {
+static void UpdateSprites(unsigned crop_top, bool level, const uint8_t prio_map[4], bool obj_math) {
   static const uint8_t kSizes[8][2] = {
     {8, 16}, {8, 32}, {8, 64}, {16, 32}, {16, 64}, {32, 64}, {16, 32}, {16, 32},
   };
   const Ppu *p = s_ppu;
   const uint8_t *sizes = kSizes[PPU_objSize(p)];
-  for (int i = 0; i < 128; i++) {
+  /* SNES OAM priority rotation (used on the map): sprite `first` has the
+   * highest priority. DS priority is by OAM slot, so rotate the slots. */
+  const int first = PPU_objPriority(p) ? (p->oamaddl & 0xfe) >> 1 : 0;
+  for (int slot = 0; slot < 128; slot++) {
+    const int i = (first + slot) & 127;
     const uint16_t lo = p->oam[i * 2], hi = p->oam[i * 2 + 1];
     const uint8_t ext = p->highOam[i >> 2] >> ((i & 3) * 2);
     const int size = sizes[(ext >> 1) & 1];
@@ -283,15 +344,19 @@ static void UpdateSprites(unsigned crop_top, const uint8_t prio_map[4]) {
     const int y = ((lo >> 8) - (int)crop_top) & 0xff;
     const uint16_t t = (hi & 0xff) | ((hi & 0x100) ? 0x100 : 0);
     const uint8_t attr = hi >> 8;
-    if (y >= kDsRows && y + size <= 256) {
-      s_oam_stage[i * 4] = ATTR0_DISABLED;
+    /* In levels the reserve item (x=120, y=15) belongs to the status bar,
+     * which is on the bottom screen. */
+    if ((y >= kDsRows && y + size <= 256) || (level && (lo & 0xff) == 120 && (lo >> 8) == 15)) {
+      s_oam_stage[slot * 4] = ATTR0_DISABLED;
       continue;
     }
     const uint16_t size_code = size == 8 ? 0 : size == 16 ? 1 : size == 32 ? 2 : 3;
-    s_oam_stage[i * 4 + 0] = (uint16_t)(y | ATTR0_SQUARE | ATTR0_COLOR_16);
-    s_oam_stage[i * 4 + 1] = (uint16_t)((x & 0x1ff) | ((attr & 0x40) ? ATTR1_FLIP_X : 0) |
+    /* Colour math on sprites only affects palettes 4-7 on the SNES. */
+    const uint16_t blend = obj_math && (attr & 8) ? ATTR0_TYPE_BLENDED : 0;
+    s_oam_stage[slot * 4 + 0] = (uint16_t)(y | ATTR0_SQUARE | ATTR0_COLOR_16 | blend);
+    s_oam_stage[slot * 4 + 1] = (uint16_t)((x & 0x1ff) | ((attr & 0x40) ? ATTR1_FLIP_X : 0) |
                                    ((attr & 0x80) ? ATTR1_FLIP_Y : 0) | (size_code << 14));
-    s_oam_stage[i * 4 + 2] = (uint16_t)((((t >> 4) << 5) | (t & 15)) |
+    s_oam_stage[slot * 4 + 2] = (uint16_t)((((t >> 4) << 5) | (t & 15)) |
                                    ATTR2_PRIORITY(prio_map[(attr >> 4) & 3]) |
                                    ATTR2_PALETTE((attr >> 1) & 7));
   }
@@ -314,8 +379,13 @@ static uint16_t Backdrop(const LineRegs *l) {
   return c0;
 }
 
-static void UpdatePalettes(void) {
+static void UpdatePalettes(bool m7) {
   const uint16_t *cg = s_ppu->cgram;
+  if (m7) {  /* the mode 7 layer uses all 256 colours */
+    for (int i = 1; i < 256; i++) BG_PALETTE[i] = cg[i];
+    for (int i = 0; i < 128; i++) SPRITE_PALETTE[i] = cg[128 + i];
+    return;
+  }
   for (int i = 1; i < 128; i++) BG_PALETTE[i] = cg[i];   /* BG1/BG2 palettes */
   for (int i = 0; i < 128; i++) SPRITE_PALETTE[i] = cg[128 + i];
   for (int pal = 0; pal < 8; pal++)                      /* BG3: 4 colours */
@@ -327,18 +397,20 @@ static void StartLineDma(int table) {
   DMA_CR(0) = 0;
   DMA_CR(1) = 0;
   /* Line 0 directly; DMA writes the following lines during each HBlank. */
-  const uint32_t *s = (const uint32_t *)s_scroll[table][0];
-  for (int i = 0; i < 4; i++) ((vu32 *)&REG_BG0HOFS)[i] = s[i];
+  const uint32_t *s = (const uint32_t *)ScrollRow(table, 0);
+  const unsigned words = s_line_words[table];
+  for (unsigned i = 0; i < words; i++) ((vu32 *)&REG_BG0HOFS)[i] = s[i];
   BG_PALETTE[0] = s_backdrop[table][0];
-  DMA_SRC(0) = (uint32_t)s_scroll[table][1];
+  DMA_SRC(0) = (uint32_t)ScrollRow(table, 1);
   DMA_DEST(0) = (uint32_t)&REG_BG0HOFS;
-  DMA_CR(0) = DMA_ENABLE | DMA_REPEAT | DMA_START_HBL | DMA_DST_RESET | DMA_32_BIT | 4;
+  DMA_CR(0) = DMA_ENABLE | DMA_REPEAT | DMA_START_HBL | DMA_DST_RESET | DMA_32_BIT | words;
   DMA_SRC(1) = (uint32_t)&s_backdrop[table][1];
   DMA_DEST(1) = (uint32_t)BG_PALETTE;
   DMA_CR(1) = DMA_ENABLE | DMA_REPEAT | DMA_START_HBL | DMA_DST_RESET | DMA_16_BIT | 1;
 }
 
 static void StartWindowDma(int table, bool enable);
+static void StartDispcntDma(int table, bool enable);
 
 /* The table shown at the next VBlank. The per-line DMA has to be restarted
  * at every VBlank, otherwise it runs past the end of its table and fills
@@ -348,13 +420,23 @@ static void StartWindowDma(int table, bool enable);
  * it from the last finished table: a slow frame just shows the previous
  * picture again. */
 static volatile int s_shown_table = -1;
-static volatile bool s_shown_windows;
+static volatile bool s_shown_windows, s_shown_dispcnt;
 
 static void VBlankStartIrq(void) {
   const int t = s_shown_table;
   if (t < 0) return;
   StartLineDma(t);
   StartWindowDma(t, s_shown_windows);
+  StartDispcntDma(t, s_shown_dispcnt);
+}
+
+static void StartDispcntDma(int table, bool enable) {
+  DMA_CR(3) = 0;
+  if (!enable) return;
+  REG_DISPCNT = s_dispcnt[table][0];
+  DMA_SRC(3) = (uint32_t)&s_dispcnt[table][1];
+  DMA_DEST(3) = (uint32_t)&REG_DISPCNT;
+  DMA_CR(3) = DMA_ENABLE | DMA_REPEAT | DMA_START_HBL | DMA_DST_RESET | DMA_32_BIT | 1;
 }
 
 static void StartWindowDma(int table, bool enable) {
@@ -391,7 +473,7 @@ typedef struct DsWindowRegs {
 
 /* Work out DS window/effect registers from the SNES ones. DS regions:
  * inside window 0 (= SNES W1), inside window 1 only (= W2), outside. */
-static DsWindowRegs ComputeWindows(const LineRegs *l, bool bg2_sub_only) {
+static DsWindowRegs ComputeWindows(const LineRegs *l, bool bg2_sub_only, bool m7) {
   DsWindowRegs r = {0, 0, 0, 0, 0};
   const uint32_t ws = l->windowsel;
   const bool uses_w1 = (ws & 0x222222) != 0, uses_w2 = (ws & 0x888888) != 0;
@@ -400,7 +482,9 @@ static DsWindowRegs ComputeWindows(const LineRegs *l, bool bg2_sub_only) {
   /* Which SNES layers are window-masked on the screen they appear on. */
   uint8_t masked = l->main_win & l->main;
   if (bg2_sub_only) masked = (masked & ~2) | (l->sub_win & 2);
-  static const uint8_t kDsBits[5] = {1 | 2, 4, 8, 0, 16};  /* BG1 -> BG0+BG1 */
+  static const uint8_t kDsBitsM1[5] = {1 | 2, 4, 8, 0, 16};  /* BG1 -> BG0+BG1 */
+  static const uint8_t kDsBitsM7[5] = {8 | 1 | 2, 4, 0, 0, 16}; /* mode 7 BG1 -> BG3 (+ text) */
+  const uint8_t *kDsBits = m7 ? kDsBitsM7 : kDsBitsM1;
 
   const unsigned cm = (l->cgwsel >> 6) & 3, pm = (l->cgwsel >> 4) & 3;
   const bool backdrop_math = (l->cgadsub & 0x20) && !(l->cgadsub & 0x80);
@@ -445,13 +529,127 @@ static DsWindowRegs ComputeWindows(const LineRegs *l, bool bg2_sub_only) {
 
 /* ---- per frame ------------------------------------------------------ */
 
-static const uint8_t kSpritePrio[4] = {2, 2, 1, 0};
 
 /* Before VBlank: record the frame and prepare everything that does not
  * touch video memory, so the VBlank part stays short. */
-void NdsRenderCapture(unsigned crop_top) {
+/* Mode 7 settings for the frame being prepared (see PrepareMode7). */
+typedef struct Mode7Frame {
+  bool on;
+  bool wrap;
+} Mode7Frame;
+static Mode7Frame s_m7;
+static const LineRegs *s_m7_line;  /* first mode 7 line of the frame */
+
+/* The SNES mode 7 start position of one line (snesrev's renderer, exactly,
+ * including its rounding), as DS BG3 rotation registers at sc[16..23]. */
+static void Mode7Row(const LineRegs *l, int line1, uint16_t *sc) {
+  const int a = l->m7[0], b = l->m7[1], c = l->m7[2], d = l->m7[3];
+  const int cx = (int16_t)(l->m7[4] << 3) >> 3, cy = (int16_t)(l->m7[5] << 3) >> 3;
+  const int h = (int16_t)(l->m7[6] << 3) >> 3, v = (int16_t)(l->m7[7] << 3) >> 3;
+  int ch = h - cx, cv = v - cy;
+  ch = (ch & 0x2000) ? (ch | ~1023) : (ch & 1023);
+  cv = (cv & 0x2000) ? (cv | ~1023) : (cv & 1023);
+  const bool xflip = l->m7sel & 1, yflip = l->m7sel & 2;
+  const int ry = yflip ? 255 - line1 : line1, rx0 = xflip ? 255 : 0;
+  const int32_t x = (a * ch & ~63) + (b * ry & ~63) + (b * cv & ~63) + (cx << 8) + a * rx0;
+  const int32_t y = (c * ch & ~63) + (d * ry & ~63) + (d * cv & ~63) + (cy << 8) + c * rx0;
+  memset(sc + 8, 0, 8 * sizeof(uint16_t));
+  sc[16] = (uint16_t)(xflip ? -a : a);
+  sc[17] = (uint16_t)b;
+  sc[18] = (uint16_t)(xflip ? -c : c);
+  sc[19] = (uint16_t)d;
+  sc[20] = (uint16_t)x;
+  sc[21] = (uint16_t)((uint32_t)x >> 16);
+  sc[22] = (uint16_t)y;
+  sc[23] = (uint16_t)((uint32_t)y >> 16);
+}
+
+/* If any line uses mode 7, the DS picture uses DS mode 1 with BG3 as the
+ * mode 7 layer; its start position is set for every line (Mode7Row). Mode 1
+ * lines in the same picture (e.g. under Reznor) use BG0-BG2 as usual. */
+static void PrepareMode7(void) {
+  static int idle_frames;
+  const LineRegs *l = NULL;
+  for (int r = 0; r < kSnesRows; r++) {
+    if ((s_lines[r].bgmode & 7) == 7) { l = &s_lines[r]; break; }
+  }
+  s_m7.on = false;
+  if (!l) {
+    if (s_m7_active && ++idle_frames > 60) s_m7_active = false;
+    return;
+  }
+  idle_frames = 0;
+  if (!s_m7_active) {  /* convert all of the mode 7 area once */
+    s_m7_active = true;
+    for (int w = 0; w < 1024 / 32; w++) s_dirty[w] = ~0u;
+  }
+  s_m7.on = true;
+  s_m7_line = l;
+  s_m7.wrap = !(l->m7sel & 0x80);
+}
+
+/* How the SNES main and sub screens and colour math map onto DS layer
+ * priorities and blending, for the frame being prepared. */
+typedef struct Layout {
+  uint8_t prio[4];          /* DS BG0-BG3 priorities */
+  const uint8_t *obj_prio;  /* SNES sprite priority 0-3 -> DS priority */
+  bool obj_math;            /* sprites with palettes 4-7 blend with the sub screen */
+  uint16_t bldcnt, bldalpha;
+} Layout;
+static Layout s_layout;
+
+static Layout ComputeLayout(const LineRegs *l) {
+  /* Normal order: BG1 high, BG1 low, BG2, BG3 (BG3 on top with the mode 1
+   * priority bit, used for the status bar and some layer 3 levels). */
+  static const uint8_t kObjNormal[4] = {2, 2, 1, 0};
+  /* Mode 7: SNES sprite priority 0 is behind the mode 7 layer (BG3 at 2). */
+  static const uint8_t kObjM7[4] = {3, 2, 1, 0};
+  /* BG3 alone on the main screen above BG1/BG2/sprites on the sub screen
+   * (layer 3 in front, e.g. ghost house fog): BG3 on top of everything. */
+  static const uint8_t kObjUnderBg3[4] = {3, 2, 2, 1};
+  Layout r;
+  const uint8_t main = l->main, sub = l->sub;
+  if (s_m7.on) {
+    r = (Layout){{0, 1, 1, 2}, kObjM7, false, 0, 0};
+  } else if ((main & 4) && !(main & 3) && (sub & 3)) {
+    r = (Layout){{1, 2, 3, 0}, kObjUnderBg3, false, 0, 0};
+  } else {
+    const bool bg2_sub_only = !(main & 2) && (sub & 2);
+    r = (Layout){{0, 1, (uint8_t)(bg2_sub_only ? 3 : 1), (uint8_t)((l->bgmode & 8) ? 0 : 2)},
+                 kObjNormal, false, 0, 0};
+  }
+  /* Colour math (add, or add-and-halve; SMW never subtracts in play):
+   * main-screen layers with math on blend with what is under them. */
+  const uint8_t math = l->cgadsub;
+  if (!(math & 0x80) && !s_m7.on) {
+    uint16_t dst = BLEND_DST_BACKDROP;
+    if (sub & 1) dst |= BLEND_DST_BG0 | BLEND_DST_BG1;
+    if (sub & 2) dst |= BLEND_DST_BG2;
+    if (sub & 4) dst |= BLEND_DST_BG3;
+    if (sub & 16) dst |= BLEND_DST_SPRITE;
+    uint16_t src = 0;
+    if ((math & 1) && (main & 1)) src |= BLEND_SRC_BG0 | BLEND_SRC_BG1;
+    if ((math & 2) && (main & 2)) src |= BLEND_SRC_BG2;
+    if ((math & 4) && (main & 4)) src |= BLEND_SRC_BG3;
+    r.obj_math = (math & 0x10) && (main & 0x10) && (sub & 0x17);
+    if (src || r.obj_math) {
+      r.bldcnt = (src ? (BLEND_ALPHA | src) : 0) | dst;
+      r.bldalpha = (math & 0x40) ? (8 | 8 << 8) : (16 | 16 << 8);
+    }
+  }
+  return r;
+}
+
+void NdsRenderCapture(unsigned crop_top, bool level) {
+#ifdef SMW_NDS_TEST
+  if (g_test_ref_on) {
+    PpuBeginDrawing(s_ppu, (uint8_t *)g_test_ref, 256 * 4, 0);
+    g_test_ref_crop = (uint8_t)crop_top;
+  }
+#endif
   PortRunPpuLines(&CaptureLine);
   s_crop = crop_top;
+  PrepareMode7();
   FindChanges();
   for (uint32_t word = 0; word < 2048 / 32; word++) {
     uint32_t bits = s_dirty[word];
@@ -461,41 +659,62 @@ void NdsRenderCapture(unsigned crop_top) {
       ConvertBlock(word * 32 + bit);
     }
   }
-  ConvertMap(0, DS_BG_MAPS + 0x0000, DS_BG_MAPS + 0x1000, 0);
-  ConvertMap(1, DS_BG_MAPS + 0x2000, NULL, 0);
-  ConvertMap(2, DS_BG_MAPS + 0x3000, NULL, 8);
+  const uint32_t bg1_bytes = PPU_bgTileAdr(s_ppu, 0) * 2;
+  s_bg1_tile_base = (uint8_t)(bg1_bytes / 0x4000);
+  s_bg1_tile_add = (uint16_t)((bg1_bytes % 0x4000) / 32);
+  ConvertMap(0, DS_BG_MAPS + 0x0000, s_bg1_tile_add ? NULL : DS_BG_MAPS + 0x1000, 0, s_bg1_tile_add);
+  ConvertMap(1, DS_BG_MAPS + 0x2000, NULL, 0, 0);
+  ConvertMap(2, DS_BG_MAPS + 0x3000, NULL, 8, 0);
   s_maps_full_refresh = false;
   memset(s_dirty, 0, sizeof(s_dirty));
-  UpdateSprites(crop_top, kSpritePrio);
+  s_layout = ComputeLayout(&s_lines[crop_top + kDsRows / 2]);
+  UpdateSprites(crop_top, level, s_layout.obj_prio, s_layout.obj_math);
 
-  /* Per-line scroll and backdrop for the 192 shown lines. Lines above the
-   * status-bar split (on the SNES they show only the status bar, which is
-   * on the bottom screen here) use the first line below it, so the level
-   * continues to the top of the DS screen. */
+  /* Per-line scroll and backdrop for the 192 shown lines. Above the
+   * status-bar split the SNES shows the status bar on BG3 (it is on the
+   * bottom screen here); there DS BG3 continues the level's BG3 instead. */
   const int t = s_table ^ 1;
+  s_line_words[t] = s_m7.on ? 12 : 4;
   const uint16_t v_add = (uint16_t)(crop_top + 1);
-  int first_level_row = 0;
-  if (crop_top == 32) {  /* level: the status-bar IRQ changes BG3/mode */
+  int split = 0;  /* first SNES line below the status bar */
+  if (level) {    /* the status-bar IRQ changes BG3 scroll/mode there */
     for (int r = 1; r < 64; r++) {
       if (s_lines[r].bgmode != s_lines[0].bgmode || s_lines[r].vs[2] != s_lines[0].vs[2] ||
           s_lines[r].hs[2] != s_lines[0].hs[2] || s_lines[r].main != s_lines[0].main) {
-        first_level_row = r > (int)crop_top ? r - (int)crop_top : 0;
+        split = r;
         break;
       }
     }
   }
   for (int y = 0; y <= kDsRows; y++) {
-    const int row = y < first_level_row ? first_level_row : (y < kDsRows ? y : kDsRows - 1);
-    const LineRegs *l = &s_lines[crop_top + row];
-    uint16_t *sc = s_scroll[t][y];
+    const int line = (int)crop_top + (y < kDsRows ? y : kDsRows - 1);
+    const LineRegs *l = &s_lines[line];
+    const LineRegs *l3 = line < split ? &s_lines[split] : l;  /* BG3: level, not status bar */
+    s_rowline[t][y] = (uint8_t)line;
+    uint16_t *sc = ScrollRow(t, y);
     sc[0] = sc[2] = l->hs[0];
     sc[1] = sc[3] = l->vs[0] + v_add;
     sc[4] = l->hs[1];
     sc[5] = l->vs[1] + v_add;
-    sc[6] = l->hs[2];
-    sc[7] = l->vs[2] + v_add;
+    sc[6] = l3->hs[2];
+    sc[7] = l3->vs[2] + v_add;
     s_backdrop[t][y] = Backdrop(l);
     s_winpos[t][y] = DsWindowSpan(l->w1l, l->w1r) | (uint32_t)DsWindowSpan(l->w2l, l->w2r) << 16;
+    if (s_m7.on) Mode7Row((l->bgmode & 7) == 7 ? l : s_m7_line, line + 1, sc);
+  }
+  if (s_m7.on) {
+    for (int y = 0; y <= kDsRows; y++) s_rowtext[t][y] = (s_lines[s_rowline[t][y]].bgmode & 7) != 7;
+    /* Lines just above a mode 1 part show its layers early (see Present):
+     * give them its BG1/BG2 scroll so they show the map just above it. */
+    for (int y = kDsRows - 1; y >= 0; y--) {
+      if (s_rowtext[t][y]) continue;
+      for (int k = y + 1; k <= y + 2 && k <= kDsRows; k++) {
+        if (s_rowtext[t][k]) {
+          memcpy(ScrollRow(t, y), ScrollRow(t, k), 6 * sizeof(uint16_t));
+          break;
+        }
+      }
+    }
   }
   DC_FlushRange(s_winpos[t], sizeof(s_winpos[t]));
   DC_FlushRange(s_scroll[t], sizeof(s_scroll[t]));
@@ -505,6 +724,10 @@ void NdsRenderCapture(unsigned crop_top) {
 
 /* During VBlank: registers and small tables first (they must not change
  * mid-picture), then the changed tiles and map entries. */
+#ifdef SMW_NDS_TEST
+volatile uint32_t g_test_m7_bad_map, g_test_m7_bad_tiles;  /* checked after uploads */
+#endif
+
 void NdsRenderPresent(void) {
   const Ppu *p = s_ppu;
   const unsigned crop_top = s_crop;
@@ -514,45 +737,86 @@ void NdsRenderPresent(void) {
   s_table = s_ready_table;
   StartLineDma(s_table);
 
-  /* Layer order (see header). BG2 drawn only on the SNES sub screen sits
-   * under everything on the main screen. */
+  /* Layer order and colour math: see ComputeLayout. */
+  const Layout *lay = &s_layout;
   const bool bg2_sub_only = !(mid->main & 2) && (mid->sub & 2);
-  const bool bg3_top = (mid->bgmode & 8) != 0;
-  const uint8_t prio_bg3 = bg3_top ? 0 : 2;
-  const uint8_t prio_bg2 = bg2_sub_only ? 3 : 1;
 
   const uint16_t mosaic_on = BIT(6);
-  REG_BG0CNT = BG_PRIORITY(0) | BG_TILE_BASE(0) | BG_MAP_BASE(0) | BG_COLOR_16 | MapSizeBits(0) |
+  REG_BG0CNT = BG_PRIORITY(lay->prio[0]) | BG_TILE_BASE(s_bg1_tile_base) | BG_MAP_BASE(0) | BG_COLOR_16 | MapSizeBits(0) |
                ((mid->mosaic & 1) ? mosaic_on : 0);
-  REG_BG1CNT = BG_PRIORITY(1) | BG_TILE_BASE(0) | BG_MAP_BASE(4) | BG_COLOR_16 | MapSizeBits(0) |
+  REG_BG1CNT = BG_PRIORITY(lay->prio[1]) | BG_TILE_BASE(s_bg1_tile_base) | BG_MAP_BASE(4) | BG_COLOR_16 | MapSizeBits(0) |
                ((mid->mosaic & 1) ? mosaic_on : 0);
-  REG_BG2CNT = BG_PRIORITY(prio_bg2) | BG_TILE_BASE(PPU_bgTileAdr(p, 1) * 2 / 0x4000) |
+  REG_BG2CNT = BG_PRIORITY(lay->prio[2]) | BG_TILE_BASE(PPU_bgTileAdr(p, 1) * 2 / 0x4000) |
                BG_MAP_BASE(8) | BG_COLOR_16 | MapSizeBits(1) | ((mid->mosaic & 2) ? mosaic_on : 0);
-  REG_BG3CNT = BG_PRIORITY(prio_bg3) | BG_TILE_BASE(8) | BG_MAP_BASE(12) | BG_COLOR_16 |
+  REG_BG3CNT = BG_PRIORITY(lay->prio[3]) | BG_TILE_BASE(8) | BG_MAP_BASE(12) | BG_COLOR_16 |
                MapSizeBits(2) | ((mid->mosaic & 4) ? mosaic_on : 0);
   const unsigned m = (mid->mosaic >> 4) & 15;
   REG_MOSAIC = m | (m << 4);
 
   const uint8_t shown = mid->main | mid->sub;
   uint32_t dispcnt = MODE_0_2D | DISPLAY_SCREEN_BASE(1) | DISPLAY_SPR_2D;
-  if (shown & 1) dispcnt |= DISPLAY_BG0_ACTIVE | DISPLAY_BG1_ACTIVE;
+  const uint32_t bg1_bits = DISPLAY_BG0_ACTIVE | (s_bg1_tile_add ? 0 : DISPLAY_BG1_ACTIVE);
+  if (shown & 1) dispcnt |= bg1_bits;
   if (shown & 2) dispcnt |= DISPLAY_BG2_ACTIVE;
   if (shown & 4) dispcnt |= DISPLAY_BG3_ACTIVE;
   if (shown & 16) dispcnt |= DISPLAY_SPR_ACTIVE;
-  if (PPU_mode(p) != 1)
-    dispcnt &= ~(DISPLAY_BG0_ACTIVE | DISPLAY_BG1_ACTIVE | DISPLAY_BG2_ACTIVE | DISPLAY_BG3_ACTIVE);
+  if (s_m7.on) {
+    /* DS mode 1: BG3 is a rotation background showing the mode 7 layer. */
+    dispcnt = MODE_1_2D | DISPLAY_SCREEN_BASE(1) | DISPLAY_SPR_2D |
+              ((shown & 1) ? DISPLAY_BG3_ACTIVE : 0) | ((shown & 16) ? DISPLAY_SPR_ACTIVE : 0);
+    REG_BG3CNT = BG_PRIORITY(2) | BG_TILE_BASE(10) | BG_MAP_BASE(16) | (3 << 14) |
+                 (s_m7.wrap ? BIT(13) : 0);
 
-  const DsWindowRegs win = ComputeWindows(mid, bg2_sub_only);
+  } else if ((mid->bgmode & 7) != 1) {
+    dispcnt &= ~(DISPLAY_BG0_ACTIVE | DISPLAY_BG1_ACTIVE | DISPLAY_BG2_ACTIVE | DISPLAY_BG3_ACTIVE);
+  }
+
+  const DsWindowRegs win = ComputeWindows(mid, bg2_sub_only, s_m7.on);
   dispcnt |= win.dispcnt_bits;
   *(vu16 *)0x04000044 = kDsRows;  /* WIN0V: lines 0..191 */
   *(vu16 *)0x04000046 = kDsRows;  /* WIN1V */
   WIN_IN = win.winin;
   WIN_OUT = win.winout;
-  REG_BLDCNT = win.bldcnt;
+  /* Window colour effects (fades to black) win over colour math; sprite
+   * blending works in either mode (it needs only the second targets). */
+  REG_BLDCNT = win.bldcnt ? (uint16_t)(win.bldcnt | (lay->obj_math ? (lay->bldcnt & 0x3f00) : 0))
+                          : lay->bldcnt;
+  REG_BLDALPHA = lay->bldalpha;
   REG_BLDY = win.bldy;
   StartWindowDma(s_table, win.dispcnt_bits != 0);
   REG_DISPCNT = dispcnt;
   s_shown_windows = win.dispcnt_bits != 0;
+
+  /* Mode 7 frames: lines that are SNES mode 1 (e.g. the bridge under
+   * Reznor) show the text layers instead of the mode 7 layer. The DS turns
+   * a background on two lines after DISPCNT says so (off is immediate), so
+   * text layers are switched on two lines early (NdsRenderCapture gives
+   * those lines the scroll of the line below), and the mode 7 layer stays
+   * on from the top down to its last line. */
+  bool line_dispcnt = false;
+  if (s_m7.on) {
+    const uint32_t bgs = DISPLAY_BG0_ACTIVE | DISPLAY_BG1_ACTIVE | DISPLAY_BG2_ACTIVE | DISPLAY_BG3_ACTIVE;
+    int last_m7 = -1;
+    for (int y = 0; y <= kDsRows; y++)
+      if (!s_rowtext[s_table][y]) last_m7 = y;
+    for (int y = 0; y <= kDsRows; y++) {
+      const LineRegs *l = &s_lines[s_rowline[s_table][y]];
+      const uint8_t on = l->main | l->sub;
+      uint32_t v = dispcnt & ~bgs;
+      if (y <= last_m7 && (on & 1)) v |= DISPLAY_BG3_ACTIVE;
+      bool text = false;
+      for (int k = y; k <= y + 2 && k <= kDsRows; k++) text |= s_rowtext[s_table][k];
+      if (text) {
+        line_dispcnt = true;
+        if (on & 1) v |= bg1_bits;
+        if (on & 2) v |= DISPLAY_BG2_ACTIVE;
+      }
+      s_dispcnt[s_table][y] = v;
+    }
+    if (line_dispcnt) DC_FlushRange(s_dispcnt[s_table], sizeof(s_dispcnt[s_table]));
+  }
+  StartDispcntDma(s_table, line_dispcnt);
+  s_shown_dispcnt = line_dispcnt;
   s_shown_table = s_table;
 
   /* Brightness fades and forced blank. */
@@ -563,14 +827,16 @@ void NdsRenderPresent(void) {
     REG_MASTER_BRIGHT = b == 15 ? 0 : (2 << 14) | (((15 - b) * 16 + 7) / 15);
 
   memcpy((void *)DS_OAM, s_oam_stage, sizeof(s_oam_stage));
-  UpdatePalettes();
+  UpdatePalettes(s_m7.on);
 
   /* Copy the changed 32-byte chunks to video memory. Copying is fast, but
    * a huge change (new level graphics, ~all of video memory) still may not
    * fit in VBlank; then show that one frame black so half-updated tiles
    * never appear. Scene changes fade through black anyway. */
-  static uint32_t *const kVram[kRegions] = {VRAM_BG_TILES, VRAM_BG_MAPS, VRAM_BG3_TILES, VRAM_OBJ_TILES};
-  static const uint32_t *const kMirror[kRegions] = {s_mir_bg, s_mir_maps, s_mir_bg3, s_mir_obj};
+  static uint32_t *const kVram[kRegions] = {VRAM_BG_TILES, VRAM_BG_MAPS, VRAM_BG3_TILES,
+                                            VRAM_OBJ_TILES, VRAM_M7_MAP, VRAM_M7_TILES};
+  static const uint32_t *const kMirror[kRegions] = {s_mir_bg, s_mir_maps, s_mir_bg3,
+                                                    s_mir_obj, s_mir_m7map, s_mir_m7tiles};
   unsigned chunks = 0;
   for (int r = 0; r < kRegions; r++)
     for (uint32_t w = 0; w < kRegionChunks[r] / 32; w++) chunks += __builtin_popcount(s_upload[r][w]);
@@ -590,4 +856,16 @@ void NdsRenderPresent(void) {
       }
     }
   }
+#ifdef SMW_NDS_TEST
+  if (s_m7_active) {
+    const uint8_t *map = (const uint8_t *)VRAM_M7_MAP, *tiles = (const uint8_t *)VRAM_M7_TILES;
+    uint32_t bm = 0, bt = 0;
+    for (int i = 0; i < 16384; i++) {
+      bm += map[i] != (uint8_t)s_ppu->vram[i];
+      bt += tiles[i] != (uint8_t)(s_ppu->vram[i] >> 8);
+    }
+    g_test_m7_bad_map = bm;
+    g_test_m7_bad_tiles = bt;
+  }
+#endif
 }

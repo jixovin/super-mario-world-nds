@@ -88,18 +88,40 @@ static uint32_t ReadPad(void) {
   return pad;
 }
 
-/* Which 192 of the 224 SNES lines to show. In levels the top 32 lines are
- * the status bar, which is on the bottom screen instead; elsewhere the
- * picture is centred. "In a level" includes the fade-in (modes $12-$13)
- * and the fade-out back to the map ($0B-$0D after a level), so the status
- * bar never shows for a moment. */
+/* Which 192 of the 224 SNES lines to show (the first shown line, 0-32).
+ *
+ * Outside levels the picture is centred. In levels the status bar is on
+ * the bottom screen, so the top screen can show any 192 of the level's 224
+ * lines: a smart camera keeps the bottom of the level in view (like the
+ * SNES picture without its status bar) and slides up when Mario goes high,
+ * so he and what's above him are never cut off. "In a level" includes the
+ * fade-in (modes $12-$13) and the fade-out back to the map ($0B-$0D after a
+ * level), so the status bar never shows for a moment. */
+static bool s_level_scene;
+
 static unsigned CropTop(const uint8_t *game_ram) {
-  static bool level_scene;
+  static int cam = 32;
   const uint8_t mode = game_ram[0x100];
-  if (mode >= 0x12 && mode <= 0x16) level_scene = true;
-  else if (!(mode >= 0x0b && mode <= 0x0d && level_scene)) level_scene = false;
-  return level_scene ? 32 : 16;
+  if (mode >= 0x12 && mode <= 0x16) s_level_scene = true;
+  else if (!(mode >= 0x0b && mode <= 0x0d && s_level_scene)) s_level_scene = false;
+  if (!s_level_scene) {
+    cam = 32;
+    return 16;
+  }
+  /* $80: Mario's Y on the screen (top of his 32-line sprite area). Keep
+   * 40 lines of room above him. */
+  const int mario_y = (int16_t)(game_ram[0x80] | game_ram[0x81] << 8);
+  int target = mario_y - 40;
+  target = target < 0 ? 0 : target > 32 ? 32 : target;
+  if (mode != 0x14) target = cam;          /* hold still during fades */
+  if (cam < target) cam += cam + 2 <= target ? 2 : 1;
+  else if (cam > target) cam -= cam - 2 >= target ? 2 : 1;
+  return (unsigned)cam;
 }
+
+#ifdef SMW_NDS_TEST
+volatile uint8_t g_test_pause;  /* test builds: tools/dstest freezes the game */
+#endif
 
 int main(void) {
   defaultExceptionHandler();
@@ -138,9 +160,15 @@ int main(void) {
   for (;;) {
     /* One SNES frame per DS screen refresh (59.8 Hz vs the SNES's 60.1). */
     const uint32_t t0 = NdsTimingTicks();
-    PortRunFrame(NdsHudInput(ReadPad()));
-    NdsAudioFrame();
-    NdsRenderCapture(CropTop(PortGameRam()));
+#ifdef SMW_NDS_TEST
+    if (!g_test_pause)
+#endif
+    {
+      PortRunFrame(NdsHudInput(ReadPad()));
+      NdsAudioFrame();
+      const unsigned crop = CropTop(PortGameRam());
+      NdsRenderCapture(crop, s_level_scene);
+    }
     busy_ticks += NdsTimingTicks() - t0;
 #ifdef SMW_NDS_TEST_DROP
     { /* test: miss a VBlank every 8th frame */

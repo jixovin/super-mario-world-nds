@@ -277,8 +277,8 @@ static void BuildLayout(int layout) {
     for (int x = kTrackX + kTrackW - 15; x < kTrackX + kTrackW - 9; x++)
       Put(s_base, x, kTrackY + 6, C(31, 8, 8));  /* goal tape */
   }
-  DC_FlushRange(s_base, sizeof(s_base));
-  dmaCopyWords(3, s_base, SUB_FB, sizeof(s_base));
+  /* CPU copy: DMA channel 3 is the top screen's per-line DISPCNT channel. */
+  memcpy((void *)SUB_FB, s_base, sizeof(s_base));
   s_drawn_lives = s_drawn_coins = s_drawn_time = s_drawn_fps = s_drawn_name = -1;
   s_drawn_score = -1;
 }

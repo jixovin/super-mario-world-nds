@@ -6,6 +6,8 @@
 // Set WAV=<file> to record the DS's audio output (stereo 16-bit, 48 kHz).
 // Steps: "N" run N frames, "N:a+right" run N frames holding keys,
 //        "shot" save both screens as PPM, "touch:x,y" / "untouch".
+// With MAP=<smw-nds.map>: "set:SYMBOL,VALUE[,SIZE]" writes a global, and
+// "refshot" saves a SMW_NDS_TEST build's reference picture.
 #include <chrono>
 #include <condition_variable>
 #include <cstdarg>
@@ -151,6 +153,22 @@ static void SaveScreens(NDS &nds, const std::string &path) {
   fclose(f);
 }
 
+// Address of a global from the linker map (env MAP=<file.map>), or 0.
+static u32 MapSymbol(const std::string &name) {
+  const char *m = getenv("MAP");
+  if (!m) return 0;
+  std::ifstream f(m);
+  std::string line;
+  while (std::getline(f, line)) {
+    char addr[32], sym[256];
+    if (sscanf(line.c_str(), " 0x%31s %255s", addr, sym) == 2 && name == sym &&
+        line.find_first_not_of(" \t", line.find(sym) + name.size()) == std::string::npos)
+      return strtoul(addr, nullptr, 16);
+  }
+  fprintf(stderr, "symbol %s not found\n", name.c_str());
+  return 0;
+}
+
 int main(int argc, char **argv) {
   if (argc < 3) { fprintf(stderr, "usage: melonds_headless game.nds out_dir steps...\n"); return 2; }
   std::ifstream in(argv[1], std::ios::binary);
@@ -197,6 +215,30 @@ int main(int argc, char **argv) {
       char p[512];
       snprintf(p, sizeof p, "%s/ds%02d_f%05d.ppm", argv[2], shot++, frame);
       SaveScreens(nds, p);
+      continue;
+    }
+    if (s.rfind("set:", 0) == 0) {  // set:SYMBOL,VALUE[,SIZE]  write a global (needs MAP)
+      char sym[256] = "";
+      unsigned v = 0, size = 1;
+      sscanf(s.c_str() + 4, "%255[^,],%i,%u", sym, (int *)&v, &size);
+      const u32 a = MapSymbol(sym);
+      if (a && size == 1) nds.ARM9Write8(a, (u8)v);
+      if (a && size == 2) nds.ARM9Write16(a, (u16)v);
+      if (a && size == 4) nds.ARM9Write32(a, v);
+      continue;
+    }
+    if (s == "refshot") {  // the test build's reference picture (g_test_ref) as PPM
+      static u32 ref = MapSymbol("g_test_ref"), crop = MapSymbol("g_test_ref_crop");
+      char p[512];
+      snprintf(p, sizeof p, "%s/ref%02d_f%05d_c%02d.ppm", argv[2], shot, frame, crop ? nds.ARM9Read8(crop) : 0);
+      FILE *f = fopen(p, "wb");
+      fprintf(f, "P6\n256 224\n255\n");
+      for (int i = 0; i < 256 * 224; i++) {
+        const u32 px = nds.ARM9Read32(ref + i * 4);
+        const u8 rgb[3] = {(u8)(px >> 16), (u8)(px >> 8), (u8)px};
+        fwrite(rgb, 1, 3, f);
+      }
+      fclose(f);
       continue;
     }
     if (s.rfind("touch:", 0) == 0) { int x, y; sscanf(s.c_str() + 6, "%d,%d", &x, &y); nds.TouchScreen(x, y); continue; }

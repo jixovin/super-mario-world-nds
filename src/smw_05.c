@@ -4,6 +4,11 @@
 #include "variables.h"
 #include "assets/smw_assets.h"
 #include "snes/snes.h"
+
+/* smw-nds: test hook. When bit 15 is set, entering a level from the map
+ * loads level number (value & 0x1ff) instead of the one under Mario. Only
+ * the test tools set it. */
+uint16 g_smw_nds_force_level;
 void (*kBufferScrollingTiles_Layer1_Main_PtrsLong058823[32])(void) = {
     &BufferScrollingTiles_Layer1,
     &BufferScrollingTiles_Layer1,
@@ -2386,12 +2391,19 @@ bool LoadLevel() {  // 05d796
       if ((ow_players_map[v1] & 0xF) != 0)
         v4 += 0x400;
       v2 = ow_level_number_of_each_tiletbl[v4];
+      if (g_smw_nds_force_level & 0x8000) {  /* smw-nds: test hook */
+        const uint16 lv = g_smw_nds_force_level & 0x1ff;
+        if (lv < 0x25) v2 = (uint8)lv;
+        else if (lv >= 0x101 && lv < 0x13c) v2 = (uint8)(lv - 0xdc);
+      }
       ow_level_number_lo = v2;
     }
     if (v2 >= 0x25)
       v2 -= 0x24;
     r14w = (ow_players_map[(uint8)v1] != 0) << 8 | v2;
     r14w = LmHook_LoadLevelInfo_C(r14w);
+    if ((g_smw_nds_force_level & 0x8000) && !misc_intro_level_flag)
+      r14w = g_smw_nds_force_level & 0x1ff;
   }
   
   ptr_layer1_data = kLevelData_Layer1(r14w).ptr;
