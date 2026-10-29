@@ -35,6 +35,12 @@ and touch features.
   read back to verify, with a "Game saved!" / "Save failed!" message.
   Verified in melonDS with a bot run: YI1 -> Yellow Switch Palace -> save
   -> restart -> file shows 2 exits and loads there.
+- **v0.4.3 (Oct 28, 2026):** fixed brief grey "static" flashes on the top
+  screen. Big graphics changes (scene changes) were converted during
+  VBlank and could run into the visible picture. Conversion now happens
+  before VBlank into RAM copies; VBlank only copies changed 32-byte chunks
+  (a full ~150 KB refresh falls back to one black frame). melonDS bot run:
+  no uploads past VBlank during play.
 
 ## Next milestones
 

@@ -37,12 +37,28 @@ enum {
   kDsRows = 192,
   kSnesRows = 224,
   kBlankTile = 1023,           /* index forced transparent for BG1 splits */
+  kMaxChunksPerVBlank = 2500,  /* 32-byte chunks safely copied in VBlank (~80 KB) */
 };
 
-#define DS_BG_TILES   ((uint32_t *)0x06000000)
-#define DS_BG_MAPS    ((uint16_t *)0x06010000)
-#define DS_BG3_TILES  ((uint32_t *)0x06020000)
-#define DS_OBJ_TILES  ((uint32_t *)0x06400000)
+/* Video memory regions, and copies of them in main RAM. Conversion writes
+ * the RAM copies before VBlank (when there is CPU time); during VBlank only
+ * the changed 32-byte chunks are copied to video memory. */
+#define VRAM_BG_TILES   ((uint32_t *)0x06000000)  /* 64 KB */
+#define VRAM_BG_MAPS    ((uint32_t *)0x06010000)  /* 32 KB */
+#define VRAM_BG3_TILES  ((uint32_t *)0x06020000)  /* 32 KB */
+#define VRAM_OBJ_TILES  ((uint32_t *)0x06400000)  /* 32 KB */
+enum { kRegBg, kRegMaps, kRegBg3, kRegObj, kRegions };
+static const uint32_t kRegionChunks[kRegions] = {2048, 1024, 1024, 1024};
+static uint32_t s_mir_bg[16384], s_mir_maps[8192], s_mir_bg3[8192], s_mir_obj[8192];
+static uint32_t s_upload[kRegions][2048 / 32];  /* chunks to copy at VBlank */
+#define DS_BG_TILES   s_mir_bg
+#define DS_BG_MAPS    ((uint16_t *)s_mir_maps)
+#define DS_BG3_TILES  s_mir_bg3
+#define DS_OBJ_TILES  s_mir_obj
+
+static inline void MarkUpload(int region, uint32_t chunk) {
+  s_upload[region][chunk >> 5] |= 1u << (chunk & 31);
+}
 #define DS_OAM        ((uint16_t *)0x07000000)
 
 /* Per-line PPU state captured while the game's frame runs. */
@@ -184,6 +200,7 @@ static void ConvertBlock(uint32_t blk) {
     memset(&DS_BG_TILES[blk * 8], 0, 32);
   else
     Convert4bpp(&vram[w], &DS_BG_TILES[blk * 8]);
+  MarkUpload(kRegBg, blk);
 
   /* 2bpp view, for BG3: two 8-word tiles per block. */
   const uint32_t rel3 = (w - bg3_base) & 0x7fff;
@@ -191,8 +208,8 @@ static void ConvertBlock(uint32_t blk) {
     const uint32_t i = rel3 / 8;
     Convert2bpp(&vram[w], &DS_BG3_TILES[i * 8]);
     Convert2bpp(&vram[w + 8], &DS_BG3_TILES[(i + 1) * 8]);
-    NdsHudOnBg3Tile(i, &DS_BG3_TILES[i * 8]);
-    NdsHudOnBg3Tile(i + 1, &DS_BG3_TILES[(i + 1) * 8]);
+    MarkUpload(kRegBg3, i);
+    MarkUpload(kRegBg3, i + 1);
   }
 
   /* Sprite tiles: SNES grid is 16 tiles wide, DS 2D grid is 32 wide. */
@@ -200,8 +217,11 @@ static void ConvertBlock(uint32_t blk) {
   uint32_t t = 0xffff;
   if (rel1 < 256 * 16) t = rel1 / 16;
   else if (rel2 < 256 * 16) t = 256 + rel2 / 16;
-  if (t != 0xffff)
-    Convert4bpp(&vram[w], &DS_OBJ_TILES[(((t >> 4) << 5) | (t & 15)) * 8]);
+  if (t != 0xffff) {
+    const uint32_t ds = ((t >> 4) << 5) | (t & 15);
+    Convert4bpp(&vram[w], &DS_OBJ_TILES[ds * 8]);
+    MarkUpload(kRegObj, ds);
+  }
 }
 
 /* ---- tile maps ------------------------------------------------------ */
@@ -228,9 +248,11 @@ static void ConvertMap(int layer, uint16_t *dst_a, uint16_t *dst_b, uint16_t pal
       const bool hi = e & 0x2000;
       dst_a[i] = hi ? d : blank;
       dst_b[i] = hi ? blank : d;
+      MarkUpload(kRegMaps, (uint32_t)(&dst_b[i] - DS_BG_MAPS) / 16);
     } else {
       dst_a[i] = d;
     }
+    MarkUpload(kRegMaps, (uint32_t)(&dst_a[i] - DS_BG_MAPS) / 16);
   }
 }
 
@@ -406,6 +428,19 @@ void NdsRenderCapture(unsigned crop_top) {
   PortRunPpuLines(&CaptureLine);
   s_crop = crop_top;
   FindChanges();
+  for (uint32_t word = 0; word < 2048 / 32; word++) {
+    uint32_t bits = s_dirty[word];
+    while (bits) {
+      const int bit = __builtin_ctz(bits);
+      bits &= bits - 1;
+      ConvertBlock(word * 32 + bit);
+    }
+  }
+  ConvertMap(0, DS_BG_MAPS + 0x0000, DS_BG_MAPS + 0x1000, 0);
+  ConvertMap(1, DS_BG_MAPS + 0x2000, NULL, 0);
+  ConvertMap(2, DS_BG_MAPS + 0x3000, NULL, 8);
+  s_maps_full_refresh = false;
+  memset(s_dirty, 0, sizeof(s_dirty));
   UpdateSprites(crop_top, kSpritePrio);
 
   /* Per-line scroll and backdrop for the 192 shown lines. */
@@ -488,18 +523,29 @@ void NdsRenderPresent(void) {
   memcpy((void *)DS_OAM, s_oam_stage, sizeof(s_oam_stage));
   UpdatePalettes();
 
-  /* Changed tiles, then the tile maps (only their changed blocks). */
-  for (uint32_t word = 0; word < 2048 / 32; word++) {
-    uint32_t bits = s_dirty[word];
-    while (bits) {
-      const int bit = __builtin_ctz(bits);
-      bits &= bits - 1;
-      ConvertBlock(word * 32 + bit);
+  /* Copy the changed 32-byte chunks to video memory. Copying is fast, but
+   * a huge change (new level graphics, ~all of video memory) still may not
+   * fit in VBlank; then show that one frame black so half-updated tiles
+   * never appear. Scene changes fade through black anyway. */
+  static uint32_t *const kVram[kRegions] = {VRAM_BG_TILES, VRAM_BG_MAPS, VRAM_BG3_TILES, VRAM_OBJ_TILES};
+  static const uint32_t *const kMirror[kRegions] = {s_mir_bg, s_mir_maps, s_mir_bg3, s_mir_obj};
+  unsigned chunks = 0;
+  for (int r = 0; r < kRegions; r++)
+    for (uint32_t w = 0; w < kRegionChunks[r] / 32; w++) chunks += __builtin_popcount(s_upload[r][w]);
+  if (chunks > kMaxChunksPerVBlank)
+    REG_MASTER_BRIGHT = (2 << 14) | 16;
+  for (int r = 0; r < kRegions; r++) {
+    for (uint32_t w = 0; w < kRegionChunks[r] / 32; w++) {
+      uint32_t bits = s_upload[r][w];
+      s_upload[r][w] = 0;
+      while (bits) {
+        const uint32_t c = w * 32 + __builtin_ctz(bits);
+        bits &= bits - 1;
+        uint32_t *d = &kVram[r][c * 8];
+        const uint32_t *src = &kMirror[r][c * 8];
+        d[0] = src[0]; d[1] = src[1]; d[2] = src[2]; d[3] = src[3];
+        d[4] = src[4]; d[5] = src[5]; d[6] = src[6]; d[7] = src[7];
+      }
     }
   }
-  ConvertMap(0, DS_BG_MAPS + 0x0000, DS_BG_MAPS + 0x1000, 0);
-  ConvertMap(1, DS_BG_MAPS + 0x2000, NULL, 0);
-  ConvertMap(2, DS_BG_MAPS + 0x3000, NULL, 8);
-  s_maps_full_refresh = false;
-  memset(s_dirty, 0, sizeof(s_dirty));
 }

@@ -223,6 +223,19 @@ int main(int argc, char **argv) {
       printf("until %x==%x: frame %d%s\n", a, v, frame, k >= 20000 ? " TIMEOUT" : "");
       continue;
     }
+    if (s.rfind("mem:", 0) == 0) {  // mem:ADDR[,ADDR...] absolute 32-bit reads
+      printf("frame %d:", frame);
+      size_t pos = 4;
+      while (pos < s.size()) {
+        size_t e = s.find(',', pos);
+        u32 a = strtoul(s.substr(pos, e == std::string::npos ? std::string::npos : e - pos).c_str(), nullptr, 16);
+        printf(" [%08x]=%u", a, nds.ARM9Read32(a));
+        if (e == std::string::npos) break;
+        pos = e + 1;
+      }
+      printf("\n");
+      continue;
+    }
     if (s.rfind("ram:", 0) == 0) {  // ram:ADDR,ADDR,... print game RAM bytes
       printf("frame %d:", frame);
       size_t pos = 4;

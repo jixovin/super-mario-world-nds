@@ -6,7 +6,7 @@ native ARM code, and the picture is drawn by the DS's 2D graphics hardware.
 The top screen shows the game; the bottom screen shows the status screen
 and touch features.
 
-## Current state (v0.4.2)
+## Current state (v0.4.3)
 
 - Runs at full speed (60 fps) on a real DS Lite + R4 (tested through most
   of Yoshi's Island 1).
