@@ -41,6 +41,12 @@ and touch features.
   before VBlank into RAM copies; VBlank only copies changed 32-byte chunks
   (a full ~150 KB refresh falls back to one black frame). melonDS bot run:
   no uploads past VBlank during play.
+- **v0.4.4 (Oct 28, 2026):** saving, take 3: on Liz's DS the only write
+  that ever reached the card was creating a new file; overwriting an
+  existing one never did. Saves now alternate between two files, each
+  deleted and created fresh, with a counter so the newest valid one loads.
+  Also: the status bar no longer flashes at the top while a level fades in
+  or out, and the rows above the status-bar split show the level.
 
 ## Next milestones
 

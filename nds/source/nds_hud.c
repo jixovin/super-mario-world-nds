@@ -473,7 +473,7 @@ void NdsHudPresent(void) {
   const Ppu *p = s_ppu;
   const uint8_t *ram = PortGameRam();
   const uint8_t mode = ram[0x100];
-  const int layout = mode == 0x14 ? kLayoutLevel : mode == 0x0e ? kLayoutOverworld : kLayoutNone;
+  const int layout = (mode >= 0x13 && mode <= 0x14) ? kLayoutLevel : mode == 0x0e ? kLayoutOverworld : kLayoutNone;
 
   if (layout != s_layout) {
     if (layout != kLayoutNone) CaptureGlyphs();

@@ -22,7 +22,7 @@
 #include "smw_assets_bin.h"
 #endif
 
-#define SMW_NDS_VERSION "0.4.3"
+#define SMW_NDS_VERSION "0.4.4"
 
 void PortPlatformFatal(const char *message) {
   consoleDemoInit(); /* the bottom screen may be showing the HUD */
@@ -88,11 +88,17 @@ static uint32_t ReadPad(void) {
   return pad;
 }
 
-/* Which 192 of the 224 SNES lines to show. In levels (game mode $14) the
- * top 32 lines are the status bar, which moves to the bottom screen;
- * elsewhere the picture is centred. */
+/* Which 192 of the 224 SNES lines to show. In levels the top 32 lines are
+ * the status bar, which is on the bottom screen instead; elsewhere the
+ * picture is centred. "In a level" includes the fade-in (modes $12-$13)
+ * and the fade-out back to the map ($0B-$0D after a level), so the status
+ * bar never shows for a moment. */
 static unsigned CropTop(const uint8_t *game_ram) {
-  return game_ram[0x100] == 0x14 ? 32 : 16;
+  static bool level_scene;
+  const uint8_t mode = game_ram[0x100];
+  if (mode >= 0x12 && mode <= 0x16) level_scene = true;
+  else if (!(mode >= 0x0b && mode <= 0x0d && level_scene)) level_scene = false;
+  return level_scene ? 32 : 16;
 }
 
 int main(void) {

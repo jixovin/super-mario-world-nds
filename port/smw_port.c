@@ -93,30 +93,63 @@ void PortInitGame(void) {
 
 static int s_save_count, s_save_ok;
 
-/* Write the whole save file in place (no rename/backup files), push it to
- * the card, then read it back to check. Two attempts. SMW itself keeps two
- * checksummed copies of every save slot inside the file. */
+/* Saves alternate between two files, each written as a brand-new file
+ * (delete, then create) with a trailer holding a save counter; the newest
+ * valid one is loaded. Overwriting an existing file in place never reached
+ * the SD card on a real DS + R4, while creating a file did. If a write
+ * fails, the other file still holds the previous save. */
+enum { kSaveMagic = 0x53444d53 /* "SMDS" */ };
+typedef struct SaveTrailer {
+  uint32 magic, counter, size, checksum;
+} SaveTrailer;
+
+static const char *const kSaveSlots[2] = {"saves/smw-a.srm", "saves/smw-b.srm"};
+static uint32 s_save_counter;
+static int s_save_slot = -1;  /* slot holding the newest save */
+
+static uint32 SaveChecksum(const uint8 *data, size_t size) {
+  uint32 h = 2166136261u;
+  for (size_t i = 0; i < size; i++) h = (h ^ data[i]) * 16777619u;
+  return h;
+}
+
+/* Reads a slot into `out`; returns its counter, or -1 if missing/invalid. */
+static int64 ReadSlot(const char *path, uint8 *out, size_t size) {
+  FILE *f = fopen(path, "rb");
+  if (!f) return -1;
+  SaveTrailer t;
+  const bool ok = fread(out, 1, size, f) == size && fread(&t, sizeof(t), 1, f) == 1;
+  fclose(f);
+  if (!ok || t.magic != kSaveMagic || t.size != size || t.checksum != SaveChecksum(out, size))
+    return -1;
+  return t.counter;
+}
+
 void PortWriteSram(const uint8 *data, size_t size) {
-  static const char kPath[] = "saves/smw.srm";
   static uint8 check[4096];
+  const int slot = s_save_slot == 0 ? 1 : 0;  /* never overwrite the newest */
+  const char *path = kSaveSlots[slot];
+  const SaveTrailer t = {kSaveMagic, s_save_counter + 1, (uint32)size, SaveChecksum(data, size)};
   bool ok = false;
-  for (int attempt = 0; attempt < 2 && !ok; attempt++) {
-    MkDir("saves");
-    FILE *f = fopen(kPath, "r+b");
-    if (!f) f = fopen(kPath, "wb");
+  MkDir("saves");
+  for (int attempt = 0; attempt < 2 && !ok && size <= sizeof(check); attempt++) {
+    remove(path);
+    FILE *f = fopen(path, "wb");
     if (!f) continue;
-    const bool wrote = fwrite(data, 1, size, f) == size && fflush(f) == 0;
+    const bool wrote = fwrite(data, 1, size, f) == size && fwrite(&t, sizeof(t), 1, f) == 1 &&
+                       fflush(f) == 0;
     fsync(fileno(f));
     fclose(f);
-    if (!wrote || size > sizeof(check)) continue;
-    f = fopen(kPath, "rb");
-    if (!f) continue;
-    ok = fread(check, 1, size, f) == size && memcmp(check, data, size) == 0;
-    fclose(f);
+    ok = wrote && ReadSlot(path, check, size) == (int64)t.counter && memcmp(check, data, size) == 0;
+  }
+  if (ok) {
+    s_save_counter = t.counter;
+    s_save_slot = slot;
+  } else {
+    fprintf(stderr, "Unable to write %s\n", path);
   }
   s_save_count++;
   s_save_ok = ok;
-  if (!ok) fprintf(stderr, "Unable to write %s\n", kPath);
 }
 
 int PortSaveStatus(bool *ok) {
@@ -125,8 +158,23 @@ int PortSaveStatus(bool *ok) {
 }
 
 void PortLoadSave(void) {
+  static uint8 buf[4096];
   MkDir("saves");
-  RtlReadSram();
+  if (g_sram_size > sizeof(buf)) return;
+  int64 best = -1;
+  for (int i = 0; i < 2; i++) {
+    const int64 c = ReadSlot(kSaveSlots[i], buf, g_sram_size);
+    if (c > best) {
+      best = c;
+      s_save_slot = i;
+      memcpy(g_sram, buf, g_sram_size);
+    }
+  }
+  if (best >= 0) {
+    s_save_counter = (uint32)best;
+  } else {
+    RtlReadSram();  /* saves/smw.srm from earlier versions */
+  }
 }
 
 static int s_audio_mode = kPortAudio_Silent;

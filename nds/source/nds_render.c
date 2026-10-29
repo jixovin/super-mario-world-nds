@@ -443,11 +443,25 @@ void NdsRenderCapture(unsigned crop_top) {
   memset(s_dirty, 0, sizeof(s_dirty));
   UpdateSprites(crop_top, kSpritePrio);
 
-  /* Per-line scroll and backdrop for the 192 shown lines. */
+  /* Per-line scroll and backdrop for the 192 shown lines. Lines above the
+   * status-bar split (on the SNES they show only the status bar, which is
+   * on the bottom screen here) use the first line below it, so the level
+   * continues to the top of the DS screen. */
   const int t = s_table ^ 1;
   const uint16_t v_add = (uint16_t)(crop_top + 1);
+  int first_level_row = 0;
+  if (crop_top == 32) {  /* level: the status-bar IRQ changes BG3/mode */
+    for (int r = 1; r < 64; r++) {
+      if (s_lines[r].bgmode != s_lines[0].bgmode || s_lines[r].vs[2] != s_lines[0].vs[2] ||
+          s_lines[r].hs[2] != s_lines[0].hs[2] || s_lines[r].main != s_lines[0].main) {
+        first_level_row = r > (int)crop_top ? r - (int)crop_top : 0;
+        break;
+      }
+    }
+  }
   for (int y = 0; y <= kDsRows; y++) {
-    const LineRegs *l = &s_lines[crop_top + (y < kDsRows ? y : kDsRows - 1)];
+    const int row = y < first_level_row ? first_level_row : (y < kDsRows ? y : kDsRows - 1);
+    const LineRegs *l = &s_lines[crop_top + row];
     uint16_t *sc = s_scroll[t][y];
     sc[0] = sc[2] = l->hs[0];
     sc[1] = sc[3] = l->vs[0] + v_add;
