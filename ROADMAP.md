@@ -27,6 +27,8 @@ and touch features.
   and the chip's envelopes run as before, BRR samples are decoded to PCM
   once (cached), and DS channels follow pitch/volume/pan each frame.
   Pitch matches the SNES reference exactly; ~60% CPU in YI1 at 60 fps.
+- **v0.4.1 (Oct 28, 2026):** redesigned bottom screen: hand-drawn SMW-style
+  scene with panels, level name, 2x counters, item box, progress track.
 
 ## Next milestones
 

@@ -3,10 +3,10 @@
 A native Nintendo DS port of *Super Mario World*, made for the DS Lite with
 an R4-style flashcart. It is not an emulator: the game's own logic runs as
 native ARM code, and the picture is drawn by the DS's 2D graphics hardware.
-The top screen shows the game; the bottom screen will hold the status bar
+The top screen shows the game; the bottom screen shows the status screen
 and touch features.
 
-## Current state (v0.4.0)
+## Current state (v0.4.1)
 
 - Runs at full speed (60 fps) on a real DS Lite + R4 (tested through most
   of Yoshi's Island 1).
@@ -15,8 +15,11 @@ and touch features.
 - Music and sound effects: the game's own sound driver runs, and the SNES
   sound chip's 8 voices are played on the DS's hardware sound channels
   (samples decoded from the SNES format once and cached). No echo yet.
-- Bottom screen: the original status bar, a large reserve-item box (tap it
-  to drop the item) and an FPS counter (tap it to turn it on/off).
+- Bottom screen: a game-themed status screen (sky, hills and panels) with
+  the level name, big lives/coins/time/score counters drawn with the
+  game's own digits and icons, a large reserve-item box (tap it to use the
+  item), a level-progress track with Mario on it, and an FPS counter (tap
+  it to hide or show).
 - SNES window effects: message boxes, keyhole and circle wipes.
 - Saves are written to `/_nds/smw-nds/saves/smw.srm` on the SD card.
 - Not yet: echo/reverb in the music, mode 7 scenes (some boss fights),

@@ -138,6 +138,34 @@ int main(int argc, char **argv) {
       PortRunPpuLines(&DumpLineHook);  /* also renders, via the hook */
       continue;
     }
+    if (strncmp(line, "cgram", 5) == 0) {  /* BG3 palettes 0-7 (colours 0-3) */
+      for (int i = 0; i < 32; i++) printf("%s%04x", i % 4 ? " " : "\n  pal ", g_my_ppu->cgram[i]);
+      printf("\n");
+      continue;
+    }
+    if (strncmp(line, "playeroam", 9) == 0) {
+      int px = (PortGameRam()[0x94] | PortGameRam()[0x95] << 8) - (PortGameRam()[0x1a] | PortGameRam()[0x1b] << 8);
+      int py = (PortGameRam()[0x96] | PortGameRam()[0x97] << 8) - (PortGameRam()[0x1c] | PortGameRam()[0x1d] << 8);
+      printf("player screen %d,%d\n", px, py);
+      for (int i = 0; i < 128; i++) {
+        int y = g_my_ppu->oam[i * 2] >> 8, x = g_my_ppu->oam[i * 2] & 0xff;
+        if (abs(x - px) < 24 && abs(y - py) < 40)
+          printf("  oam %3d x=%3d y=%3d tile=%03x attr=%02x\n", i, x, y, g_my_ppu->oam[i*2+1] & 0x1ff, g_my_ppu->oam[i*2+1] >> 8);
+      }
+      continue;
+    }
+    if (strncmp(line, "names", 5) == 0) {  /* print all level names */
+      for (int lv = 0; lv < 0x60; lv++) {
+        uint8_t c[40]; int n = PortLevelNameCodes((uint8_t)lv, c, 40);
+        printf("%02x: ", lv);
+        for (int i = 0; i < n; i++) {
+          uint8_t k = c[i];
+          printf("%c", k < 26 ? 'A' + k : k >= 0x40 && k < 0x5a ? 'a' + k - 0x40 : k == 0x1f ? ' ' : k == 0x1a ? '!' : k == 0x1b ? '.' : '?');
+        }
+        printf("  [%02x..]\n", n ? c[n-1] : 0);
+      }
+      continue;
+    }
     if (strncmp(line, "vram", 4) == 0) {  /* "vram 5000 64": print words */
       unsigned a = 0, n = 0;
       sscanf(line + 4, "%x %u", &a, &n);

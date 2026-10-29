@@ -141,6 +141,31 @@ struct Ppu *PortPpu(void) {
   return g_my_ppu;
 }
 
+/* Same composition as the game's UpdateLevelName (049d07): up to three
+ * pieces from the level-name string table. */
+static int AppendNamePiece(uint16 j, uint8_t *codes, int n, int max) {
+  uint8 t;
+  do {
+    t = kUpdateLevelName_LevelNameStrings[j++];
+    if (n < max) codes[n++] = t & 0x7f;
+  } while (!(t & 0x80));
+  return n;
+}
+
+int PortLevelNameCodes(uint8_t translevel, uint8_t *codes, int max) {
+  const uint16 r0w = kLevelNames[translevel];
+  int n = 0;
+  const uint16 v1 = kUpdateLevelName_DATA_049C91[(r0w >> 8) & 0x7f];
+  if ((kUpdateLevelName_LevelNameStrings[v1] & 0x80) == 0)
+    n = AppendNamePiece(v1, codes, n, max);
+  const uint16 v2 = kUpdateLevelName_DATA_049CCF[(r0w & 0xf0) >> 4];
+  if (kUpdateLevelName_LevelNameStrings[v2] != 0x9f)
+    n = AppendNamePiece(v2, codes, n, max);
+  n = AppendNamePiece(kUpdateLevelName_DATA_049CED[r0w & 0xf], codes, n, max);
+  while (n > 0 && codes[n - 1] == 0x1f) n--;  /* trim trailing spaces */
+  return n;
+}
+
 uint8_t *PortGameRam(void) {
   return g_ram;
 }

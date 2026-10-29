@@ -71,6 +71,11 @@ void PortRunPpuLines(PortLineHook *hook);
 /* The SNES PPU state (registers, VRAM, CGRAM, OAM) the game writes to. */
 struct Ppu *PortPpu(void);
 
+/* The name of level `translevel` (e.g. YOSHI'S ISLAND 1) as the game's own
+ * message-font tile codes (tile 0x100 + code; 0x1f is a space). Returns
+ * the number of codes written. */
+int PortLevelNameCodes(uint8_t translevel, uint8_t *codes, int max);
+
 /* Direct access to game RAM ($7E0000-$7FFFFF), for HUD/bottom-screen use. */
 uint8_t *PortGameRam(void);
 
