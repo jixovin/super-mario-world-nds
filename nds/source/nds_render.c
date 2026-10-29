@@ -97,6 +97,8 @@ static uint16_t s_last_tile_adr = 0xffff;
  * spread over the 8 nibbles of a packed 4bpp DS row. */
 static uint32_t s_spread[256];
 
+static void VBlankStartIrq(void);
+
 void NdsRenderInit(void) {
   for (int b = 0; b < 256; b++) {
     uint32_t v = 0;
@@ -116,6 +118,10 @@ void NdsRenderInit(void) {
     DS_OAM[i * 4 + 2] = 0;
   }
   s_ppu = PortPpu();
+  irqSet(IRQ_VCOUNT, VBlankStartIrq);
+  SetYtrigger(kDsRows);
+  REG_DISPSTAT |= DISP_YTRIGGER_IRQ;
+  irqEnable(IRQ_VCOUNT);
 }
 
 static void CaptureLine(int line) {
@@ -332,6 +338,25 @@ static void StartLineDma(int table) {
   DMA_CR(1) = DMA_ENABLE | DMA_REPEAT | DMA_START_HBL | DMA_DST_RESET | DMA_16_BIT | 1;
 }
 
+static void StartWindowDma(int table, bool enable);
+
+/* The table shown at the next VBlank. The per-line DMA has to be restarted
+ * at every VBlank, otherwise it runs past the end of its table and fills
+ * the picture with garbage scroll values (grey "static" lines). The main
+ * loop restarts it in NdsRenderPresent, but when a frame takes too long
+ * that is late, so an interrupt at the start of VBlank (line 192) restarts
+ * it from the last finished table: a slow frame just shows the previous
+ * picture again. */
+static volatile int s_shown_table = -1;
+static volatile bool s_shown_windows;
+
+static void VBlankStartIrq(void) {
+  const int t = s_shown_table;
+  if (t < 0) return;
+  StartLineDma(t);
+  StartWindowDma(t, s_shown_windows);
+}
+
 static void StartWindowDma(int table, bool enable) {
   DMA_CR(2) = 0;
   if (!enable) return;
@@ -485,6 +510,7 @@ void NdsRenderPresent(void) {
   const unsigned crop_top = s_crop;
   const LineRegs *mid = &s_lines[crop_top + kDsRows / 2];
   if (s_ready_table < 0) return;
+  s_shown_table = -1;  /* no restart from the interrupt while changing */
   s_table = s_ready_table;
   StartLineDma(s_table);
 
@@ -526,6 +552,8 @@ void NdsRenderPresent(void) {
   REG_BLDY = win.bldy;
   StartWindowDma(s_table, win.dispcnt_bits != 0);
   REG_DISPCNT = dispcnt;
+  s_shown_windows = win.dispcnt_bits != 0;
+  s_shown_table = s_table;
 
   /* Brightness fades and forced blank. */
   const unsigned b = mid->inidisp & 15;

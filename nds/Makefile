@@ -34,7 +34,7 @@ ARCH     := -marm -march=armv5te -mtune=arm946e-s
 CFLAGS   := -g -Wall -O2 -ffunction-sections -fdata-sections -fno-strict-aliasing \
             -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function \
             -Wno-parentheses -Wno-sign-compare -Wno-maybe-uninitialized \
-            $(ARCH) $(INCLUDE) -DARM9 -DSMW_NO_SDL $(ASSET_DEFS)
+            $(ARCH) $(INCLUDE) -DARM9 -DSMW_NO_SDL $(ASSET_DEFS) $(EXTRA_DEFS)
 CXXFLAGS := $(CFLAGS) -fno-rtti -fno-exceptions
 ASFLAGS  := -g $(ARCH)
 LDFLAGS   = -specs=ds_arm9.specs -g $(ARCH) -Wl,--gc-sections -Wl,-Map,$(notdir $*.map)

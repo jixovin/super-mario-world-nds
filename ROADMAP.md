@@ -47,12 +47,21 @@ and touch features.
   deleted and created fresh, with a counter so the newest valid one loads.
   Also: the status bar no longer flashes at the top while a level fades in
   or out, and the rows above the status-bar split show the level.
+  Saving confirmed working on Liz's DS Lite + R4.
+- **v0.4.5 (Oct 28, 2026):** the real cause of the grey "static" flashes.
+  The per-line scroll/backdrop/window values are fed by HBlank DMA from a
+  table that must be restarted every VBlank. When a frame occasionally ran
+  long (a missed VBlank, every 10-15 s on hardware), the restart was late
+  and the DMA ran past the end of the table, filling one picture with
+  garbage. An interrupt at line 192 now restarts it every VBlank, so a slow
+  frame just repeats the previous picture. Reproduced and verified in
+  melonDS with a test build that forces a missed VBlank every 8 frames.
 
 ## Next milestones
 
 | # | Milestone | Done when |
 |---|---|---|
-| 1 | Real-hardware check | 60 fps confirmed. Saving fixed in v0.4.2; to confirm on DS Lite. |
+| 1 | Real-hardware check | Done: 60 fps and saving confirmed on DS Lite + R4. |
 | 2 | Bottom screen HUD | Done in v0.3.0. |
 | 3 | Audio | Done in v0.4.0 (no echo yet). Echo/reverb via DS sound capture is a follow-up. |
 | 4 | Smart camera | Vertical crop follows Mario so nothing important is hidden. |

@@ -22,7 +22,7 @@
 #include "smw_assets_bin.h"
 #endif
 
-#define SMW_NDS_VERSION "0.4.4"
+#define SMW_NDS_VERSION "0.4.5"
 
 void PortPlatformFatal(const char *message) {
   consoleDemoInit(); /* the bottom screen may be showing the HUD */
@@ -142,6 +142,12 @@ int main(void) {
     NdsAudioFrame();
     NdsRenderCapture(CropTop(PortGameRam()));
     busy_ticks += NdsTimingTicks() - t0;
+#ifdef SMW_NDS_TEST_DROP
+    { /* test: miss a VBlank every 8th frame */
+      static unsigned n;
+      if ((++n & 7) == 0) { const uint32_t s = NdsTimingTicks(); while (NdsTimingTicks() - s < 600) {} }
+    }
+#endif
 
     swiWaitForVBlank();
     NdsRenderPresent();
