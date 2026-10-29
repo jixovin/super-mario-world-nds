@@ -56,6 +56,12 @@ and touch features.
   garbage. An interrupt at line 192 now restarts it every VBlank, so a slow
   frame just repeats the previous picture. Reproduced and verified in
   melonDS with a test build that forces a missed VBlank every 8 frames.
+- **v0.5.0 (Oct 28, 2026):** smart camera; mode 7 boss rooms (DS rotation
+  background, per-line registers, pixel-exact against snesrev's renderer in
+  melonDS); colour math (translucent layer 3, sprite math); echo via the
+  DS sound capture units; map lives icon fixed (OAM priority rotation).
+  New test build (SMW_NDS_TEST) renders the SNES reference picture in the
+  same pass, with level warp, for automatic comparisons.
 
 ## Next milestones
 
@@ -64,10 +70,10 @@ and touch features.
 | 1 | Real-hardware check | Done: 60 fps and saving confirmed on DS Lite + R4. |
 | 2 | Bottom screen HUD | Done in v0.3.0. |
 | 3 | Audio | Done in v0.4.0 (no echo yet). Echo/reverb via DS sound capture is a follow-up. |
-| 4 | Smart camera | Vertical crop follows Mario so nothing important is hidden. |
-| 5 | Remaining SNES effects | Windows (message box, keyhole, circle wipes), colour math (translucent layers), mode 7 (Bowser, Iggy/Larry, Reznor, etc.). |
+| 4 | Smart camera | Done in v0.5.0. |
+| 5 | Remaining SNES effects | Done in v0.5.0. |
 | 6 | Touch menu | Options/save menu on the bottom screen. |
-| 7 | Full playthrough | Every world, castle and the ending checked on hardware; performance tuned. |
+| 7 | Full playthrough | In progress: automated sweep of all levels, maps, cutscenes and the ending; then hardware. |
 | 8 | Release polish | Options, credits, build instructions, known-issues list. |
 
 ## Testing approach

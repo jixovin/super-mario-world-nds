@@ -22,7 +22,7 @@
 #include "smw_assets_bin.h"
 #endif
 
-#define SMW_NDS_VERSION "0.4.5"
+#define SMW_NDS_VERSION "0.5.0"
 
 void PortPlatformFatal(const char *message) {
   consoleDemoInit(); /* the bottom screen may be showing the HUD */
@@ -121,6 +121,8 @@ static unsigned CropTop(const uint8_t *game_ram) {
 
 #ifdef SMW_NDS_TEST
 volatile uint8_t g_test_pause;  /* test builds: tools/dstest freezes the game */
+volatile uint32_t g_test_late;  /* frames that missed their VBlank (not counting tests) */
+extern volatile uint8_t g_test_ref_on;
 #endif
 
 int main(void) {
@@ -183,6 +185,17 @@ int main(void) {
     frames++;
 
     const uint32_t now = NdsTimingFramesElapsed();
+#ifdef SMW_NDS_TEST
+    {
+      static uint32_t prev;
+      if (g_test_ref_on || g_test_pause) {
+        prev = 0;
+      } else {
+        if (prev && now - prev > 1 && PortGameRam()[0x100] == 0x14) g_test_late++;
+        prev = now;
+      }
+    }
+#endif
     if (now - last_second >= 60) {
       /* CPU load: share of the frame time spent before waiting for VBlank
        * (547 ticks per frame). */

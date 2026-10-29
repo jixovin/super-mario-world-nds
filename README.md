@@ -6,7 +6,7 @@ native ARM code, and the picture is drawn by the DS's 2D graphics hardware.
 The top screen shows the game; the bottom screen shows the status screen
 and touch features.
 
-## Current state (v0.4.5)
+## Current state (v0.5.0)
 
 - Runs at full speed (60 fps) on a real DS Lite + R4 (tested through most
   of Yoshi's Island 1).
@@ -25,8 +25,12 @@ and touch features.
   `smw-a.srm` and `smw-b.srm` (each written as a new file and checked by
   reading it back; the newest valid one is loaded), with "Game saved!"
   shown on the bottom screen. Older `smw.srm` saves are still loaded.
-- Not yet: echo/reverb in the music, mode 7 scenes (some boss fights),
-  translucent effects.
+- Smart camera: in levels the top screen slides up to keep Mario and what's
+  above him in view.
+- Mode 7 boss rooms (Iggy/Larry, Morton/Roy/Ludwig, Reznor, Bowser),
+  translucent effects (ghost house fog etc.) and music echo.
+- In progress: a sweep of every level, cutscene and the ending against the
+  reference picture (tools/dstest/sweep_level.sh).
 
 See [the roadmap](ROADMAP.md) for what's next.
 
