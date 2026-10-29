@@ -12,12 +12,20 @@
  *     and started on DS channel = voice number;
  *   - each frame, DS channel volume/pan/pitch follow the S-DSP state.
  *
- * Voices using the noise generator play on DS channel 14/15 (PSG noise).
- * Not yet: echo, pitch modulation.
+ * Voices using the noise generator play on DS channel 14 (PSG noise).
+ *
+ * Echo: the DS's two sound capture units record the left/right mixer
+ * output into ring buffers as long as the S-DSP echo delay, and DS
+ * channels 1 and 3 play those buffers back (the classic DS reverb). What
+ * they play is captured again, so each repeat is quieter by the echo
+ * volume, like the S-DSP's echo feedback. Differences: every voice is
+ * echoed (not just the ones with echo on) and there is no FIR filter.
+ * Not yet: pitch modulation.
  */
 #include "nds_audio.h"
 
 #include <nds.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -31,6 +39,11 @@ enum {
   kArenaBytes = 640 * 1024,
   kMaxSampleBlocks = 4096,   /* 64K samples: guards against bad data */
 };
+
+/* DS channel for each S-DSP voice: 1 and 3 play the echo (capture units
+ * 0 and 1), 14 plays noise. */
+static const uint8_t kVoiceCh[kVoices] = {0, 2, 4, 5, 6, 7, 8, 9};
+enum { kNoiseCh = 14, kEchoChL = 1, kEchoChR = 3, kEchoMaxSamples = 15 * 512 };
 
 /* SNES pitch p plays at 32000 * p / 4096 Hz; DS timer = clock / rate. */
 #define PITCH_TO_TIMER(p) (2144895u / (p))
@@ -56,8 +69,12 @@ static uint32_t s_upload_seen;
 static Voice s_voice[kVoices];
 static bool s_on;
 
+static int16_t *s_echo_buf[2];     /* capture ring buffers, left and right */
+static unsigned s_echo_len;        /* samples; 0 = echo not running */
+static uint16_t s_echo_vol[2];
+
 static void StopAll(void) {
-  soundStop(0xffff);
+  soundStop(0xffff & ~((1u << kEchoChL) | (1u << kEchoChR)));
   memset(s_voice, 0, sizeof(s_voice));
 }
 
@@ -70,6 +87,10 @@ static void ClearCache(void) {
 void NdsAudioInit(void) {
   s_arena = malloc(kArenaBytes);
   if (!s_arena) return;
+  for (int i = 0; i < 2; i++) {
+    s_echo_buf[i] = aligned_alloc(32, kEchoMaxSamples * 2);
+    if (!s_echo_buf[i]) return;
+  }
   soundInit();
   soundPowerOn();
   soundSetMixerVolume(127);
@@ -196,10 +217,72 @@ static unsigned NoiseTimer(const Dsp *dsp) {
   return soundTimerFromHz(steps_per_sec ? steps_per_sec : 1);
 }
 
+static void StopEcho(void) {
+  if (!s_echo_len) return;
+  soundStop((1u << kEchoChL) | (1u << kEchoChR) | (3u << 16));
+  s_echo_len = 0;
+}
+
+/* DS echo channel volume for S-DSP echo volume `evol` and feedback `efb`.
+ * On the DS the echo channel's volume is both the output level and the
+ * feedback (its output is captured again), so pick the single gain g whose
+ * repeats g, g^2, ... carry the same total energy as the S-DSP's
+ * evol, evol*efb, evol*efb^2, ...:  g^2/(1-g^2) = evol^2/(1-efb^2).
+ * Capped at 0.6 so the feedback always dies away. */
+static uint16_t EchoVol(int8_t evol, int8_t efb) {
+  static int last_key = -1;
+  static uint16_t last;
+  const int key = (uint8_t)evol << 8 | (uint8_t)efb;
+  if (key == last_key) return last;
+  last_key = key;
+  const float v = abs(evol) / 128.0f, f = abs(efb) / 128.0f;
+  const float e = v * v / (1.0f - (f < 0.95f ? f * f : 0.9025f));
+  float g = sqrtf(e / (1.0f + e));
+  if (g > 0.6f) g = 0.6f;
+  return last = (uint16_t)(g * 2047.0f);
+}
+
+static void UpdateEcho(const Dsp *dsp) {
+  bool any = false;
+  for (int v = 0; v < kVoices; v++) any |= dsp->channel[v].echoEnable;
+#ifdef SMW_NDS_NO_ECHO
+  any = false;  /* test builds: compare with/without echo */
+#endif
+  const bool on = any && dsp->echoWrites && !dsp->mute && dsp->echoDelay >= 512 &&
+                  (dsp->echoVolumeL || dsp->echoVolumeR);
+  if (!on) {
+    StopEcho();
+    return;
+  }
+  const unsigned len = dsp->echoDelay > kEchoMaxSamples ? kEchoMaxSamples : dsp->echoDelay;
+  const uint16_t vl = EchoVol(dsp->echoVolumeL, dsp->feedbackVolume),
+                 vr = EchoVol(dsp->echoVolumeR, dsp->feedbackVolume);
+  if (len != s_echo_len) {
+    StopEcho();
+    const unsigned timer = soundTimerFromHz(32000);
+    for (int i = 0; i < 2; i++) {
+      memset(s_echo_buf[i], 0, len * 2);
+      DC_FlushRange(s_echo_buf[i], len * 2);
+      soundPrepareCap(i, SoundCapDst_ChBNormal, SoundCapSrc_Mixer, true, SoundCapFmt_Pcm16,
+                      s_echo_buf[i], len / 2);
+    }
+    soundPreparePcm(kEchoChL, vl, 0, timer, SoundMode_Repeat, SoundFmt_Pcm16, s_echo_buf[0], 0, len / 2);
+    soundPreparePcm(kEchoChR, vr, 127, timer, SoundMode_Repeat, SoundFmt_Pcm16, s_echo_buf[1], 0, len / 2);
+    soundStart((1u << kEchoChL) | (1u << kEchoChR) | (3u << 16));
+    s_echo_len = len;
+    s_echo_vol[0] = vl;
+    s_echo_vol[1] = vr;
+    return;
+  }
+  if (vl != s_echo_vol[0]) soundChSetVolume(kEchoChL, s_echo_vol[0] = vl);
+  if (vr != s_echo_vol[1]) soundChSetVolume(kEchoChR, s_echo_vol[1] = vr);
+}
+
 void NdsAudioFrame(void) {
   if (!s_on) return;
   const Dsp *dsp = PortDsp();
   const uint8_t *ram = PortSpcRam();
+  UpdateEcho(dsp);
 
   if (g_spc_upload_count != s_upload_seen) {  /* new music/sample data */
     s_upload_seen = g_spc_upload_count;
@@ -220,20 +303,20 @@ void NdsAudioFrame(void) {
     if (timer < 16) timer = 16;
 
     if (kon & (1 << v)) {
-      if (voice->playing) soundStop(1u << (voice->noise ? 14 : v));
+      if (voice->playing) soundStop(1u << (voice->noise ? kNoiseCh : kVoiceCh[v]));
       voice->playing = false;
       voice->noise = ch->useNoise;
       if (ch->useNoise) {
-        soundPreparePsg(14 | SOUND_START, vol, pan, NoiseTimer(dsp), SoundDuty_50);
+        soundPreparePsg(kNoiseCh | SOUND_START, vol, pan, NoiseTimer(dsp), SoundDuty_50);
         voice->playing = true;
       } else {
         const Sample *smp = GetSample(dsp, ram, ch->srcn);
         if (smp && smp->words) {
           if (smp->loops)
-            soundPreparePcm(v | SOUND_START, vol, pan, timer, SoundMode_Repeat, SoundFmt_Pcm16,
+            soundPreparePcm(kVoiceCh[v] | SOUND_START, vol, pan, timer, SoundMode_Repeat, SoundFmt_Pcm16,
                             smp->pcm, smp->loop_words, smp->words - smp->loop_words);
           else
-            soundPreparePcm(v | SOUND_START, vol, pan, timer, SoundMode_OneShot, SoundFmt_Pcm16,
+            soundPreparePcm(kVoiceCh[v] | SOUND_START, vol, pan, timer, SoundMode_OneShot, SoundFmt_Pcm16,
                             smp->pcm, 0, smp->words);
           voice->playing = true;
         }
@@ -245,7 +328,7 @@ void NdsAudioFrame(void) {
     }
 
     if (!voice->playing) continue;
-    const unsigned hw = voice->noise ? 14 : (unsigned)v;
+    const unsigned hw = voice->noise ? kNoiseCh : kVoiceCh[v];
     if (ch->adsrState == 4 && ch->gain == 0) {  /* released and silent */
       soundStop(1u << hw);
       voice->playing = false;

@@ -15,6 +15,7 @@
 #include "util.h"
 MemBlk FindInAssetArray(int asset, int idx);
 #include "snes/ppu.h"
+#include "snes/dsp.h"
 
 extern Ppu *g_my_ppu;
 extern Ppu *g_ppu;
@@ -159,6 +160,15 @@ int main(int argc, char **argv) {
       snprintf(path, sizeof(path), "%s/shot%02d_f%05d.ppm", argv[2], shot++, frame);
       WritePpm(path, 224);
       printf("wrote %s\n", path);
+      continue;
+    }
+    if (strncmp(line, "dsp", 3) == 0) {  /* echo settings of the sound chip */
+      const struct Dsp *d = PortDsp();
+      int eon = 0;
+      for (int v = 0; v < 8; v++) eon |= d->channel[v].echoEnable << v;
+      printf("frame %d: echo delay=%d evol=%d,%d efb=%d writes=%d eon=%02x master=%d,%d\n", frame,
+             d->echoDelay, d->echoVolumeL, d->echoVolumeR, d->feedbackVolume, d->echoWrites, eon,
+             d->masterVolumeL, d->masterVolumeR);
       continue;
     }
     if (strncmp(line, "levelmodes", 10) == 0) {  /* level number -> header level mode */
