@@ -821,18 +821,11 @@ void RtlReadSram(void) {
   }
 }
 
+/* smw-nds: the platform layer writes the save (verified, no rename). */
+extern void PortWriteSram(const uint8 *data, size_t size);
+
 void RtlWriteSram(void) {
-  char filename[64], filename_bak[64];
-  snprintf(filename, sizeof(filename), "saves/%s.srm", g_rtl_game_info->title);
-  snprintf(filename_bak, sizeof(filename_bak), "saves/%s.srm.bak", g_rtl_game_info->title);
-  rename(filename, filename_bak);
-  FILE *f = fopen(filename, "wb");
-  if (f) {
-    fwrite(g_sram, 1, g_sram_size, f);
-    fclose(f);
-  } else {
-    fprintf(stderr, "Unable to write %s\n", filename);
-  }
+  PortWriteSram(g_sram, g_sram_size);
 }
 
 

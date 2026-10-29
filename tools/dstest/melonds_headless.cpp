@@ -179,6 +179,11 @@ int main(int argc, char **argv) {
     wav = fopen(w, "wb");
     fwrite("RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0\x80\xbb\0\0\0\xee\x02\0\x04\0\x10\0data\0\0\0\0", 1, 44, wav);
   }
+  // pin:ADDR,VAL keeps game RAM byte ADDR (offset into g_ram, needs GRAM)
+  // at VAL before every frame; unpin:ADDR stops.
+  std::vector<std::pair<u32, u8>> pins;
+  const u32 gram = getenv("GRAM") ? strtoul(getenv("GRAM"), nullptr, 16) : 0;
+  auto apply_pins = [&]() { for (auto &p : pins) nds.ARM9Write8(gram + p.first, p.second); };
   auto drain_audio = [&]() {
     s16 buf[2048 * 2];
     int n;
@@ -196,6 +201,41 @@ int main(int argc, char **argv) {
     }
     if (s.rfind("touch:", 0) == 0) { int x, y; sscanf(s.c_str() + 6, "%d,%d", &x, &y); nds.TouchScreen(x, y); continue; }
     if (s == "untouch") { nds.ReleaseScreen(); continue; }
+    if (s.rfind("pin:", 0) == 0) {
+      unsigned a = 0, v = 0;
+      sscanf(s.c_str() + 4, "%x,%x", &a, &v);
+      pins.push_back({a, (u8)v});
+      continue;
+    }
+    if (s.rfind("unpin:", 0) == 0) {
+      unsigned a = 0;
+      sscanf(s.c_str() + 6, "%x", &a);
+      for (size_t k = 0; k < pins.size(); k++) if (pins[k].first == a) pins.erase(pins.begin() + k--);
+      continue;
+    }
+    if (s.rfind("until:", 0) == 0) {  // until:ADDR,VAL[,keys]  (max 20000 frames)
+      unsigned a = 0, v = 0;
+      char keys[64] = "";
+      sscanf(s.c_str() + 6, "%x,%x,%63s", &a, &v, keys);
+      nds.SetKeyMask(0xFFF & ~KeyBits(keys));
+      unsigned k = 0;
+      while (gram && k < 20000 && nds.ARM9Read8(gram + a) != v) { apply_pins(); nds.RunFrame(); drain_audio(); frame++; k++; }
+      printf("until %x==%x: frame %d%s\n", a, v, frame, k >= 20000 ? " TIMEOUT" : "");
+      continue;
+    }
+    if (s.rfind("ram:", 0) == 0) {  // ram:ADDR,ADDR,... print game RAM bytes
+      printf("frame %d:", frame);
+      size_t pos = 4;
+      while (pos < s.size()) {
+        size_t e = s.find(',', pos);
+        u32 a = strtoul(s.substr(pos, e == std::string::npos ? std::string::npos : e - pos).c_str(), nullptr, 16);
+        printf(" [%x]=%02x", a, nds.ARM9Read8(gram + a));
+        if (e == std::string::npos) break;
+        pos = e + 1;
+      }
+      printf("\n");
+      continue;
+    }
     if (s.rfind("mode:", 0) == 0) {
       const char *g = getenv("GRAM");
       unsigned want = 0, max = 3000;
@@ -230,7 +270,7 @@ int main(int argc, char **argv) {
     int n = atoi(s.substr(0, c).c_str());
     u32 held = c == std::string::npos ? 0 : KeyBits(s.substr(c + 1));
     nds.SetKeyMask(0xFFF & ~held);
-    for (int k = 0; k < n; k++, frame++) { nds.RunFrame(); drain_audio(); }
+    for (int k = 0; k < n; k++, frame++) { apply_pins(); nds.RunFrame(); drain_audio(); }
   }
   if (wav) {
     uint32_t data = wav_samples * 4, riff = data + 36;

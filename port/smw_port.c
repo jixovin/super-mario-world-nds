@@ -4,6 +4,7 @@
 
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -88,6 +89,39 @@ void PortInitGame(void) {
     Die("Game initialisation failed");
   g_spc_player = SmwSpcPlayer_Create();
   g_spc_player->initialize(g_spc_player);
+}
+
+static int s_save_count, s_save_ok;
+
+/* Write the whole save file in place (no rename/backup files), push it to
+ * the card, then read it back to check. Two attempts. SMW itself keeps two
+ * checksummed copies of every save slot inside the file. */
+void PortWriteSram(const uint8 *data, size_t size) {
+  static const char kPath[] = "saves/smw.srm";
+  static uint8 check[4096];
+  bool ok = false;
+  for (int attempt = 0; attempt < 2 && !ok; attempt++) {
+    MkDir("saves");
+    FILE *f = fopen(kPath, "r+b");
+    if (!f) f = fopen(kPath, "wb");
+    if (!f) continue;
+    const bool wrote = fwrite(data, 1, size, f) == size && fflush(f) == 0;
+    fsync(fileno(f));
+    fclose(f);
+    if (!wrote || size > sizeof(check)) continue;
+    f = fopen(kPath, "rb");
+    if (!f) continue;
+    ok = fread(check, 1, size, f) == size && memcmp(check, data, size) == 0;
+    fclose(f);
+  }
+  s_save_count++;
+  s_save_ok = ok;
+  if (!ok) fprintf(stderr, "Unable to write %s\n", kPath);
+}
+
+int PortSaveStatus(bool *ok) {
+  *ok = s_save_ok;
+  return s_save_count;
 }
 
 void PortLoadSave(void) {

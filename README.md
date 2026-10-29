@@ -6,7 +6,7 @@ native ARM code, and the picture is drawn by the DS's 2D graphics hardware.
 The top screen shows the game; the bottom screen shows the status screen
 and touch features.
 
-## Current state (v0.4.1)
+## Current state (v0.4.2)
 
 - Runs at full speed (60 fps) on a real DS Lite + R4 (tested through most
   of Yoshi's Island 1).
@@ -21,7 +21,8 @@ and touch features.
   item), a level-progress track with Mario on it, and an FPS counter (tap
   it to hide or show).
 - SNES window effects: message boxes, keyhole and circle wipes.
-- Saves are written to `/_nds/smw-nds/saves/smw.srm` on the SD card.
+- Saves are written to `/_nds/smw-nds/saves/smw.srm` on the SD card,
+  checked by reading them back, with "Game saved!" shown on the bottom screen.
 - Not yet: echo/reverb in the music, mode 7 scenes (some boss fights),
   translucent effects.
 

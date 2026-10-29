@@ -29,12 +29,18 @@ and touch features.
   Pitch matches the SNES reference exactly; ~60% CPU in YI1 at 60 fps.
 - **v0.4.1 (Oct 28, 2026):** redesigned bottom screen: hand-drawn SMW-style
   scene with panels, level name, 2x counters, item box, progress track.
+- **v0.4.2 (Oct 28, 2026):** saving fixed on real hardware. The save at the
+  Yellow Switch Palace never reached Liz's SD card (the old write renamed
+  the file to a backup first). Saves are now written in place, synced and
+  read back to verify, with a "Game saved!" / "Save failed!" message.
+  Verified in melonDS with a bot run: YI1 -> Yellow Switch Palace -> save
+  -> restart -> file shows 2 exits and loads there.
 
 ## Next milestones
 
 | # | Milestone | Done when |
 |---|---|---|
-| 1 | Real-hardware check | Done for v0.2.0 (60 fps on DS Lite + R4). Saves still to verify. |
+| 1 | Real-hardware check | 60 fps confirmed. Saving fixed in v0.4.2; to confirm on DS Lite. |
 | 2 | Bottom screen HUD | Done in v0.3.0. |
 | 3 | Audio | Done in v0.4.0 (no echo yet). Echo/reverb via DS sound capture is a follow-up. |
 | 4 | Smart camera | Vertical crop follows Mario so nothing important is hidden. |

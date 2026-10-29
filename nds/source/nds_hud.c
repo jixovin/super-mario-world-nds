@@ -369,6 +369,41 @@ static void DrawFps(void) {
   for (int r = 0; r < 9; r++) memcpy(&SUB_FB[(y + r) * kW + 196], &s_scratch[r * kW + 196], 60 * 2);
 }
 
+/* "Game saved!" / "Save failed!" in the bottom-left corner. The font tiles
+ * may not be loaded yet (title screen), so only shown with a layout. */
+static int s_seen_saves, s_message_frames;
+
+static void DrawSaveMessage(const char *text) {
+  const int y = 180, x = 8, w = 120;
+  for (int r = 0; r < 10; r++) memcpy(&s_scratch[r * kW], &s_base[(y + r) * kW], kW * 2);
+  for (int i = 0; text && text[i]; i++) {
+    const char c = text[i];
+    unsigned code;
+    if (c >= 'A' && c <= 'Z') code = (unsigned)(c - 'A');
+    else if (c >= 'a' && c <= 'z') code = 0x40 + (unsigned)(c - 'a');
+    else if (c == '!') code = 0x1a;
+    else continue;
+    Glyph g;
+    CaptureTile(&g, 0x100 + code, 6);
+    DrawGlyph(s_scratch - y * kW, &g, x + i * 8, y, 1, true, false, false);
+  }
+  for (int r = 0; r < 10; r++) memcpy(&SUB_FB[(y + r) * kW + x], &s_scratch[r * kW + x], w * 2);
+}
+
+static void UpdateSaveMessage(void) {
+  bool ok;
+  const int saves = PortSaveStatus(&ok);
+  if (s_layout == kLayoutNone) {
+    s_seen_saves = saves;  /* e.g. the copy the game makes when a file is picked */
+  } else if (saves != s_seen_saves) {
+    s_seen_saves = saves;
+    DrawSaveMessage(ok ? "Game saved!" : "Save failed!");
+    s_message_frames = 180;
+  } else if (s_message_frames > 0 && --s_message_frames == 0) {
+    DrawSaveMessage(NULL);
+  }
+}
+
 /* ---- public ------------------------------------------------------------ */
 
 void NdsHudInit(void) {
@@ -480,6 +515,7 @@ void NdsHudPresent(void) {
       s_drawn_time = time;
     }
   }
+  UpdateSaveMessage();
   const int fps_key = s_show_fps ? (int)s_fps : 1000;
   if (fps_key != s_drawn_fps) {
     DrawFps();

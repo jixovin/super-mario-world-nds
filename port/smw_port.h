@@ -41,6 +41,10 @@ void PortInitGame(void);
  * The game writes the file itself when it saves. */
 void PortLoadSave(void);
 
+/* How many times the game has saved, and whether the last save was written
+ * and read back correctly (for an on-screen "Game saved!" message). */
+int PortSaveStatus(bool *ok);
+
 /* Run one 60 Hz game frame with the given kPortPad_* buttons held. */
 void PortRunFrame(uint32_t buttons);
 

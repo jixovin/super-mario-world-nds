@@ -86,10 +86,16 @@ static uint32_t ParseButtons(const char *s) {
   return r;
 }
 
+/* "pin ADDR VAL": keep a game-RAM byte at VAL every frame ("unpin ADDR"). */
+static int g_pin_addr[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+static uint8_t g_pin_val[8];
+
 static FILE *g_wav;
 static uint32_t g_wav_samples;
 
 static void RunOneFrame(uint32_t buttons) {
+  for (int i = 0; i < 8; i++)
+    if (g_pin_addr[i] >= 0) PortGameRam()[g_pin_addr[i]] = g_pin_val[i];
   PortRunFrame(buttons);
   if (g_wav) {  /* WAV=<file>: record 534 samples (32 kHz) per frame */
     int16_t buf[534 * 2];
@@ -110,6 +116,7 @@ int main(int argc, char **argv) {
   const char *err = PortLoadAssets(assets, size);
   if (err) PortPlatformFatal(err);
   PortInitGame();
+  if (getenv("LOADSAVE")) PortLoadSave();  /* saves/smw.srm in the current directory */
   if (getenv("WAV")) {
     g_wav = fopen(getenv("WAV"), "wb");
     fwrite("RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0\0\x7d\0\0\0\xf4\x01\0\x04\0\x10\0data\0\0\0\0", 1, 44, g_wav);
@@ -136,6 +143,33 @@ int main(int argc, char **argv) {
       PortRunFrame(0);
       frame++;
       PortRunPpuLines(&DumpLineHook);  /* also renders, via the hook */
+      continue;
+    }
+    if (strncmp(line, "pin ", 4) == 0 || strncmp(line, "unpin ", 6) == 0) {
+      unsigned a = 0, v = 0;
+      const bool pin = line[0] == 'p';
+      sscanf(line + (pin ? 4 : 6), "%x %x", &a, &v);
+      for (int i = 0; i < 8; i++) {
+        if (pin ? g_pin_addr[i] < 0 : g_pin_addr[i] == (int)a) {
+          g_pin_addr[i] = pin ? (int)a : -1;
+          g_pin_val[i] = (uint8_t)v;
+          break;
+        }
+      }
+      continue;
+    }
+    if (strncmp(line, "until ", 6) == 0) {  /* "until ADDR VAL [buttons]": run until ram[ADDR]==VAL (max 20000) */
+      unsigned a = 0, v = 0;
+      char b[64] = "";
+      sscanf(line + 6, "%x %x %63s", &a, &v, b);
+      const uint32_t buttons = ParseButtons(b);
+      int k = 0;
+      while (PortGameRam()[a] != v && k++ < 20000) {
+        RunOneFrame(buttons);
+        PortRenderSoftware(g_pixels, 256 * 4);
+        frame++;
+      }
+      printf("until %x==%x: frame %d%s\n", a, v, frame, k > 20000 ? " (TIMEOUT)" : "");
       continue;
     }
     if (strncmp(line, "cgram", 5) == 0) {  /* BG3 palettes 0-7 (colours 0-3) */
