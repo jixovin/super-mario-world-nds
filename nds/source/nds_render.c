@@ -292,6 +292,23 @@ static inline uint16_t MapEntry(uint16_t e, uint16_t pal_add, uint16_t tile_add)
 static uint16_t s_bg1_tile_add;
 static uint8_t s_bg1_tile_base;
 
+/* Normally DS BG0/BG1 are SNES BG1's high/low-priority tiles. When BG1 has
+ * no high-priority tiles but BG2 does (castle cutscenes: the ground hides
+ * the sinking castle), BG2 is split instead: DS BG0 = BG2 high tiles,
+ * DS BG1 = BG1, DS BG2 = BG2 low tiles. */
+static bool s_split2;
+
+/* DS BG bits (1 = BG0 ... 8 = BG3) showing SNES layers `snes` (1 = BG1,
+ * 2 = BG2, 4 = BG3). Also the BLDCNT source bits; << 8 for DISPCNT and
+ * BLDCNT destination bits. */
+static inline uint16_t DsBgBits(uint8_t snes) {
+  uint16_t r = 0;
+  if (snes & 1) r |= s_split2 ? 2 : (s_bg1_tile_add ? 1 : 3);
+  if (snes & 2) r |= s_split2 ? (1 | 4) : 4;
+  if (snes & 4) r |= 8;
+  return r;
+}
+
 /* SNES and DS order 32x32 map screens the same way for every map size. */
 static void ConvertMap(int layer, uint16_t *dst_a, uint16_t *dst_b, uint16_t pal_add,
                        uint16_t tile_add) {
@@ -540,8 +557,7 @@ static uint16_t SubtractFade(const LineRegs *l, uint16_t *bldy) {
   if (l->cgadsub & 0x40) left /= 2;
   *bldy = (uint16_t)(16 - (left * 16 + 15) / 31);
   const uint8_t m = l->cgadsub;
-  return (uint16_t)(BLEND_FADE_BLACK | ((m & 1) ? BLEND_SRC_BG0 | BLEND_SRC_BG1 : 0) |
-                    ((m & 2) ? BLEND_SRC_BG2 : 0) | ((m & 4) ? BLEND_SRC_BG3 : 0) |
+  return (uint16_t)(BLEND_FADE_BLACK | DsBgBits(m & 7) |
                     ((m & 16) ? BLEND_SRC_SPRITE : 0) | ((m & 32) ? BLEND_SRC_BACKDROP : 0));
 }
 
@@ -561,7 +577,7 @@ static DsWindowRegs ComputeWindows(const LineRegs *l, bool bg2_sub_only, bool m7
   /* Which SNES layers are window-masked on the screen they appear on. */
   uint8_t masked = l->main_win & l->main;
   if (bg2_sub_only) masked = (masked & ~2) | (l->sub_win & 2);
-  static const uint8_t kDsBitsM1[5] = {1 | 2, 4, 8, 0, 16};  /* BG1 -> BG0+BG1 */
+  const uint8_t kDsBitsM1[5] = {(uint8_t)DsBgBits(1), (uint8_t)DsBgBits(2), 8, 0, 16};
   static const uint8_t kDsBitsM7[5] = {8 | 1 | 2, 4, 0, 0, 16}; /* mode 7 BG1 -> BG3 (+ text) */
   const uint8_t *kDsBits = m7 ? kDsBitsM7 : kDsBitsM1;
 
@@ -674,6 +690,16 @@ static void PrepareMode7(void) {
   s_m7.wrap = !(l->m7sel & 0x80);
 }
 
+/* Whether SNES layer `layer`'s map uses the priority bit anywhere. */
+static bool MapHasHighTiles(int layer) {
+  const Ppu *p = s_ppu;
+  const uint32_t base = PPU_bgTilemapAdr(p, layer);
+  const int n = (PPU_bgTilemapWider(p, layer) ? 2 : 1) * (PPU_bgTilemapHigher(p, layer) ? 2 : 1) * 1024;
+  for (int i = 0; i < n; i++)
+    if (s_vram_shadow[(base + i) & 0x7fff] & 0x2000) return true;
+  return false;
+}
+
 static Layout ComputeLayout(const LineRegs *l, unsigned crop_top) {
   /* Normal order: BG1 high, BG1 low, BG2, BG3 (BG3 on top with the mode 1
    * priority bit, used for the status bar and some layer 3 levels). */
@@ -690,9 +716,23 @@ static Layout ComputeLayout(const LineRegs *l, unsigned crop_top) {
   } else if ((main & 4) && !(main & 3) && (sub & 3)) {
     r = (Layout){{1, 2, 3, 0}, kObjUnderBg3, false, 0, 0};
   } else {
+    /* With the BG3 priority bit (map, cutscenes) BG3's high tiles are in
+     * front of all sprites (e.g. the black text area hides the sinking
+     * castle); BG3 is drawn whole on top, so sprites go behind it. */
+    static const uint8_t kObjBehindBg3[4] = {3, 2, 1, 1};
     const bool bg2_sub_only = !(main & 2) && (sub & 2);
-    r = (Layout){{0, 1, (uint8_t)(bg2_sub_only ? 3 : 1), (uint8_t)((l->bgmode & 8) ? 0 : 2)},
-                 kObjNormal, false, 0, 0};
+    /* BG2 split (see s_split2): DS BG0 = BG2 high, BG1 = BG1, BG2 = BG2 low. */
+    static const uint8_t kObjSplit2Bg3[4] = {3, 3, 2, 1}, kObjSplit2[4] = {3, 2, 1, 0};
+    if (l->bgmode & 8) {  /* BG3 strictly in front (DS breaks ties by BG number) */
+      if (s_split2)
+        r = (Layout){{1, 2, 2, 0}, kObjSplit2Bg3, false, 0, 0};
+      else
+        r = (Layout){{1, 2, (uint8_t)(bg2_sub_only ? 3 : 2), 0}, kObjBehindBg3, false, 0, 0};
+    } else if (s_split2) {
+      r = (Layout){{0, 1, 1, 2}, kObjSplit2, false, 0, 0};
+    } else {
+      r = (Layout){{0, 1, (uint8_t)(bg2_sub_only ? 3 : 1), 2}, kObjNormal, false, 0, 0};
+    }
   }
   /* Colour math (add, or add-and-halve; SMW never subtracts in play):
    * main-screen layers with math on blend with what is under them. */
@@ -708,13 +748,11 @@ static Layout ComputeLayout(const LineRegs *l, unsigned crop_top) {
   }
   if (!(math & 0x80) && !s_m7.on) {
     uint16_t dst = BLEND_DST_BACKDROP;
-    if (sub & 1) dst |= BLEND_DST_BG0 | BLEND_DST_BG1;
-    if (sub & 2) dst |= BLEND_DST_BG2;
+    dst |= DsBgBits(sub & 3) << 8;
     if (sub & 4) dst |= BLEND_DST_BG3;
     if (sub & 16) dst |= BLEND_DST_SPRITE;
     uint16_t src = 0;
-    if ((math & 1) && (main & 1)) src |= BLEND_SRC_BG0 | BLEND_SRC_BG1;
-    if ((math & 2) && (main & 2)) src |= BLEND_SRC_BG2;
+    src |= DsBgBits(math & main & 3);
     if ((math & 4) && (main & 4)) src |= BLEND_SRC_BG3;
     r.obj_math = (math & 0x10) && (main & 0x10) && (sub & 0x17);
     if (r.obj_math) {
@@ -733,8 +771,7 @@ static Layout ComputeLayout(const LineRegs *l, unsigned crop_top) {
     const uint8_t sub_only = sub & ~main & 7;
     if (!src && (math & 0x60) == 0x60 && sub_only && (s_ppu->cgram[0] & 0x7fff) == 0) {
       r.bldcnt = (uint16_t)(BLEND_FADE_BLACK | (dst & 0x3f00) |
-                            ((sub_only & 1) ? BLEND_SRC_BG0 | BLEND_SRC_BG1 : 0) |
-                            ((sub_only & 2) ? BLEND_SRC_BG2 : 0) | ((sub_only & 4) ? BLEND_SRC_BG3 : 0));
+                            DsBgBits(sub_only));
       r.bldalpha = 8 | 8 << 8;
       r.bldy = 8;
     }
@@ -764,8 +801,23 @@ void NdsRenderCapture(unsigned crop_top, bool level) {
   const uint32_t bg1_bytes = PPU_bgTileAdr(s_ppu, 0) * 2;
   s_bg1_tile_base = (uint8_t)(bg1_bytes / 0x4000);
   s_bg1_tile_add = (uint16_t)((bg1_bytes % 0x4000) / 32);
-  ConvertMap(0, DS_BG_MAPS + 0x0000, s_bg1_tile_add ? NULL : DS_BG_MAPS + 0x1000, 0, s_bg1_tile_add);
-  ConvertMap(1, DS_BG_MAPS + 0x2000, NULL, 0, 0);
+  {
+    const LineRegs *mid = &s_lines[crop_top + kDsRows / 2];
+    const bool split2 = !s_m7.on && !s_bg1_tile_add && (mid->main & 2) &&
+                        PPU_bgTileAdr(s_ppu, 1) == PPU_bgTileAdr(s_ppu, 0) &&
+                        MapHasHighTiles(1) && !MapHasHighTiles(0);
+    if (split2 != s_split2) {
+      s_split2 = split2;
+      s_maps_full_refresh = true;
+    }
+  }
+  if (s_split2) {
+    ConvertMap(0, DS_BG_MAPS + 0x1000, NULL, 0, 0);
+    ConvertMap(1, DS_BG_MAPS + 0x0000, DS_BG_MAPS + 0x2000, 0, 0);
+  } else {
+    ConvertMap(0, DS_BG_MAPS + 0x0000, s_bg1_tile_add ? NULL : DS_BG_MAPS + 0x1000, 0, s_bg1_tile_add);
+    ConvertMap(1, DS_BG_MAPS + 0x2000, NULL, 0, 0);
+  }
   ConvertMap(2, DS_BG_MAPS + 0x3000, NULL, 8, 0);
   s_maps_full_refresh = false;
   memset(s_dirty, 0, sizeof(s_dirty));
@@ -794,8 +846,11 @@ void NdsRenderCapture(unsigned crop_top, bool level) {
     const LineRegs *l3 = line < split ? &s_lines[split] : l;  /* BG3: level, not status bar */
     s_rowline[t][y] = (uint8_t)line;
     uint16_t *sc = ScrollRow(t, y);
-    sc[0] = sc[2] = l->hs[0];
-    sc[1] = sc[3] = l->vs[0] + v_add;
+    const int l0 = s_split2 ? 1 : 0;  /* SNES layer on DS BG0 */
+    sc[0] = l->hs[l0];
+    sc[1] = l->vs[l0] + v_add;
+    sc[2] = l->hs[0];
+    sc[3] = l->vs[0] + v_add;
     sc[4] = l->hs[1];
     sc[5] = l->vs[1] + v_add;
     sc[6] = l3->hs[2];
@@ -805,7 +860,8 @@ void NdsRenderCapture(unsigned crop_top, bool level) {
      * (each line shows the first line of its block). */
     if (l->mosaic & 0xf0) {
       const uint16_t back = (uint16_t)((line + 1) % ((l->mosaic >> 4) + 1));
-      if (l->mosaic & 1) { sc[1] -= back; sc[3] -= back; }
+      if (l->mosaic & (1 << l0)) sc[1] -= back;
+      if (l->mosaic & 1) sc[3] -= back;
       if (l->mosaic & 2) sc[5] -= back;
       if (l3->mosaic & 4) sc[7] -= back;
     }
@@ -850,11 +906,14 @@ void NdsRenderPresent(void) {
   const bool bg2_sub_only = !(mid->main & 2) && (mid->sub & 2);
 
   const uint16_t mosaic_on = BIT(6);
-  REG_BG0CNT = BG_PRIORITY(lay->prio[0]) | BG_TILE_BASE(s_bg1_tile_base) | BG_MAP_BASE(0) | BG_COLOR_16 | MapSizeBits(0) |
-               ((mid->mosaic & 1) ? mosaic_on : 0);
+  const int l0 = s_split2 ? 1 : 0;  /* SNES layer on DS BG0 */
+  const uint8_t bg2_tile_base = (uint8_t)(PPU_bgTileAdr(p, 1) * 2 / 0x4000);
+  REG_BG0CNT = BG_PRIORITY(lay->prio[0]) | BG_TILE_BASE(s_split2 ? bg2_tile_base : s_bg1_tile_base) |
+               BG_MAP_BASE(0) | BG_COLOR_16 | MapSizeBits(l0) |
+               ((mid->mosaic & (1 << l0)) ? mosaic_on : 0);
   REG_BG1CNT = BG_PRIORITY(lay->prio[1]) | BG_TILE_BASE(s_bg1_tile_base) | BG_MAP_BASE(4) | BG_COLOR_16 | MapSizeBits(0) |
                ((mid->mosaic & 1) ? mosaic_on : 0);
-  REG_BG2CNT = BG_PRIORITY(lay->prio[2]) | BG_TILE_BASE(PPU_bgTileAdr(p, 1) * 2 / 0x4000) |
+  REG_BG2CNT = BG_PRIORITY(lay->prio[2]) | BG_TILE_BASE(bg2_tile_base) |
                BG_MAP_BASE(8) | BG_COLOR_16 | MapSizeBits(1) | ((mid->mosaic & 2) ? mosaic_on : 0);
   REG_BG3CNT = BG_PRIORITY(lay->prio[3]) | BG_TILE_BASE(8) | BG_MAP_BASE(12) | BG_COLOR_16 |
                MapSizeBits(2) | ((mid->mosaic & 4) ? mosaic_on : 0);
@@ -863,9 +922,9 @@ void NdsRenderPresent(void) {
 
   const uint8_t shown = mid->main | mid->sub;
   uint32_t dispcnt = MODE_0_2D | DISPLAY_SCREEN_BASE(1) | DISPLAY_SPR_2D;
-  const uint32_t bg1_bits = DISPLAY_BG0_ACTIVE | (s_bg1_tile_add ? 0 : DISPLAY_BG1_ACTIVE);
+  const uint32_t bg1_bits = (uint32_t)DsBgBits(1) << 8, bg2_bits = (uint32_t)DsBgBits(2) << 8;
   if (shown & 1) dispcnt |= bg1_bits;
-  if (shown & 2) dispcnt |= DISPLAY_BG2_ACTIVE;
+  if (shown & 2) dispcnt |= bg2_bits;
   if (shown & 4) dispcnt |= DISPLAY_BG3_ACTIVE;
   if (shown & 16) dispcnt |= DISPLAY_SPR_ACTIVE;
   if (s_m7.on) {
@@ -917,7 +976,7 @@ void NdsRenderPresent(void) {
       if (text) {
         line_dispcnt = true;
         if (on & 1) v |= bg1_bits;
-        if (on & 2) v |= DISPLAY_BG2_ACTIVE;
+        if (on & 2) v |= bg2_bits;
       }
       s_dispcnt[s_table][y] = v;
     }

@@ -61,6 +61,18 @@ static void StatLineHook(int line) {
 
 extern uint16_t g_smw_nds_force_level;
 
+/* "shotlayers MASK": render the current frame state again with only the
+ * SNES layers in MASK (1=BG1 2=BG2 4=BG3 16=OBJ), for debugging. */
+static uint8_t g_layer_mask = 0xff;
+static void MaskLineHook(int line) {
+  uint8_t m0 = g_ppu->screenEnabled[0], m1 = g_ppu->screenEnabled[1];
+  g_ppu->screenEnabled[0] &= g_layer_mask;
+  g_ppu->screenEnabled[1] &= g_layer_mask;
+  ppu_runLine(g_ppu, line);
+  g_ppu->screenEnabled[0] = m0;
+  g_ppu->screenEnabled[1] = m1;
+}
+
 void PortPlatformFatal(const char *message) {
   fprintf(stderr, "FATAL: %s\n", message);
   exit(1);
@@ -176,6 +188,18 @@ int main(int argc, char **argv) {
         MemBlk b = FindInAssetArray(43, r);
         if (b.size > 2 && (b.ptr[1] & 0x1f) != 0) printf(" lvl %03x mode %02x\n", r, b.ptr[1] & 0x1f);
       }
+      continue;
+    }
+    if (strncmp(line, "layers ", 7) == 0) {  /* "layers MASK N": run N frames rendering only MASK */
+      unsigned m = 0, n = 0;
+      sscanf(line + 7, "%x %u", &m, &n);
+      g_layer_mask = (uint8_t)m;
+      for (unsigned i = 0; i < n; i++, frame++) {
+        RunOneFrame(0);
+        PpuBeginDrawing(g_my_ppu, g_pixels, 256 * 4, 0);
+        PortRunPpuLines(&MaskLineHook);
+      }
+      g_layer_mask = 0xff;
       continue;
     }
     if (strncmp(line, "level ", 6) == 0) {  /* "level XXX": entering a level loads level number XXX */
