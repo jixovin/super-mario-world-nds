@@ -364,6 +364,54 @@ static void UpdateSprites(unsigned crop_top, bool level, const uint8_t prio_map[
 
 /* ---- palettes and per-line tables ----------------------------------- */
 
+/* How the SNES main and sub screens and colour math map onto DS layer
+ * priorities and blending, for the frame being prepared. */
+typedef struct Layout {
+  uint8_t prio[4];          /* DS BG0-BG3 priorities */
+  const uint8_t *obj_prio;  /* SNES sprite priority 0-3 -> DS priority */
+  bool obj_math;            /* sprites with palettes 4-7 blend with the sub screen */
+  uint16_t bldcnt, bldalpha, bldy;
+  uint8_t pal_sub;          /* subtract the fixed colour in the palettes: layer mask */
+  uint16_t sub_fixed;
+  bool sub_half;
+} Layout;
+static Layout s_layout;
+
+/* 0: covers nothing, 1: covers the whole line, 2: part of it. */
+static int WindowCover(uint8_t left, uint8_t right, bool invert) {
+  const int c = left > right ? 0 : (left == 0 && right == 255) ? 1 : 2;
+  return c == 2 ? 2 : (invert ? 1 - c : c);
+}
+
+/* True if colour math applies to the whole of every shown line (the colour
+ * window doesn't cut out any part). */
+static bool MathEverywhere(unsigned crop_top) {
+  for (int y = 0; y < kDsRows; y++) {
+    const LineRegs *l = &s_lines[crop_top + y];
+    const unsigned pm = (l->cgwsel >> 4) & 3;
+    if (pm == 0) continue;
+    if (pm == 3) return false;
+    const unsigned f = (l->windowsel >> 20) & 15;
+    int cover = 0;  /* colour window: OR of the enabled windows */
+    if (f & 2) cover = WindowCover(l->w1l, l->w1r, f & 1);
+    if (f & 8) {
+      const int c2 = WindowCover(l->w2l, l->w2r, f & 4);
+      cover = (cover == 1 || c2 == 1) ? 1 : (cover == 2 || c2 == 2) ? 2 : 0;
+    }
+    /* pm 1: no math outside the window; pm 2: none inside it */
+    if ((pm == 1 && cover != 1) || (pm == 2 && cover != 0)) return false;
+  }
+  return true;
+}
+
+static inline uint16_t SubColor(uint16_t c, uint16_t f, bool half) {
+  int r = (int)(c & 31) - (f & 31), g = (int)((c >> 5) & 31) - ((f >> 5) & 31),
+      b = (int)((c >> 10) & 31) - ((f >> 10) & 31);
+  r = r < 0 ? 0 : r; g = g < 0 ? 0 : g; b = b < 0 ? 0 : b;
+  if (half) { r >>= 1; g >>= 1; b >>= 1; }
+  return (uint16_t)(r | g << 5 | b << 10);
+}
+
 static inline uint16_t AddColor(uint16_t a, uint16_t b) {
   uint16_t r = (a & 31) + (b & 31), g = ((a >> 5) & 31) + ((b >> 5) & 31),
            bl = ((a >> 10) & 31) + ((b >> 10) & 31);
@@ -374,6 +422,7 @@ static inline uint16_t AddColor(uint16_t a, uint16_t b) {
  * colour when colour math adds it there (the sky in most levels). */
 static uint16_t Backdrop(const LineRegs *l) {
   const uint16_t c0 = s_ppu->cgram[0] & 0x7fff;
+  if (s_layout.pal_sub & 0x20) return SubColor(c0, s_layout.sub_fixed, s_layout.sub_half);
   if ((l->cgadsub & 0x20) && !(l->cgadsub & 0x80))
     return AddColor(c0, l->fixed);
   return c0;
@@ -384,6 +433,20 @@ static void UpdatePalettes(bool m7) {
   if (m7) {  /* the mode 7 layer uses all 256 colours */
     for (int i = 1; i < 256; i++) BG_PALETTE[i] = cg[i];
     for (int i = 0; i < 128; i++) SPRITE_PALETTE[i] = cg[128 + i];
+    return;
+  }
+  const Layout *lay = &s_layout;
+  if (lay->pal_sub) {  /* dark rooms: fixed colour subtracted from the layers with math */
+    const uint16_t f = lay->sub_fixed;
+    const bool h = lay->sub_half;
+    for (int i = 1; i < 128; i++)
+      BG_PALETTE[i] = (lay->pal_sub & 3) ? SubColor(cg[i], f, h) : cg[i];
+    for (int i = 0; i < 128; i++)
+      SPRITE_PALETTE[i] = (i >= 64 && (lay->pal_sub & 16)) ? SubColor(cg[128 + i], f, h) : cg[128 + i];
+    for (int pal = 0; pal < 8; pal++)
+      for (int c = 0; c < 4; c++)
+        BG_PALETTE[(8 + pal) * 16 + c] =
+            (lay->pal_sub & 4) ? SubColor(cg[pal * 4 + c], f, h) : cg[pal * 4 + c];
     return;
   }
   for (int i = 1; i < 128; i++) BG_PALETTE[i] = cg[i];   /* BG1/BG2 palettes */
@@ -466,6 +529,22 @@ static bool InSnesWindow(uint32_t windowsel, int layer, bool in_w1, bool in_w2) 
   return r;
 }
 
+/* Subtracting the fixed colour (dark rooms): approximated by fading the
+ * affected layers toward black, matched at full brightness:
+ * (31 - f) (/2 when halving) == 31 * (16 - bldy) / 16. Returns 0 when the
+ * line doesn't subtract the fixed colour. */
+static uint16_t SubtractFade(const LineRegs *l, uint16_t *bldy) {
+  if (!(l->cgadsub & 0x80) || (l->cgwsel & 2) || !(l->cgadsub & 0x3f)) return 0;
+  const unsigned f = ((l->fixed & 31) + ((l->fixed >> 5) & 31) + ((l->fixed >> 10) & 31)) / 3;
+  unsigned left = 31 - (f > 31 ? 31 : f);
+  if (l->cgadsub & 0x40) left /= 2;
+  *bldy = (uint16_t)(16 - (left * 16 + 15) / 31);
+  const uint8_t m = l->cgadsub;
+  return (uint16_t)(BLEND_FADE_BLACK | ((m & 1) ? BLEND_SRC_BG0 | BLEND_SRC_BG1 : 0) |
+                    ((m & 2) ? BLEND_SRC_BG2 : 0) | ((m & 4) ? BLEND_SRC_BG3 : 0) |
+                    ((m & 16) ? BLEND_SRC_SPRITE : 0) | ((m & 32) ? BLEND_SRC_BACKDROP : 0));
+}
+
 typedef struct DsWindowRegs {
   uint32_t dispcnt_bits;
   uint16_t winin, winout, bldcnt, bldy;
@@ -510,7 +589,14 @@ static DsWindowRegs ComputeWindows(const LineRegs *l, bool bg2_sub_only, bool m7
    * where the sky colour comes from math leaves the plain backdrop, which
    * in SMW is black (the message box). */
   bool *effect = NULL;
-  if (any_clip) {
+  uint16_t sub_y;
+  const uint16_t sub_fade = s_layout.pal_sub ? 0 : SubtractFade(l, &sub_y);
+  bool math_on[3];
+  for (int rg = 0; rg < 3; rg++) math_on[rg] = !nomath[rg];
+  if (sub_fade) {  /* dark room: darken where colour math applies */
+    effect = math_on;
+    r.bldcnt = sub_fade;
+  } else if (any_clip) {
     effect = clip;
     r.bldcnt = BLEND_FADE_BLACK | BLEND_SRC_BG0 | BLEND_SRC_BG1 | BLEND_SRC_BG2 |
                BLEND_SRC_BG3 | BLEND_SRC_SPRITE | BLEND_SRC_BACKDROP;
@@ -518,7 +604,7 @@ static DsWindowRegs ComputeWindows(const LineRegs *l, bool bg2_sub_only, bool m7
     effect = nomath;
     r.bldcnt = BLEND_FADE_BLACK | BLEND_SRC_BACKDROP;
   }
-  r.bldy = 16;
+  r.bldy = sub_fade ? sub_y : 16;
   const uint8_t e0 = effect && effect[0] ? 0x20 : 0, e1 = effect && effect[1] ? 0x20 : 0,
                 e2 = effect && effect[2] ? 0x20 : 0;
   r.winin = (uint16_t)((region_bits[0] | e0) | (region_bits[1] | e1) << 8);
@@ -588,17 +674,7 @@ static void PrepareMode7(void) {
   s_m7.wrap = !(l->m7sel & 0x80);
 }
 
-/* How the SNES main and sub screens and colour math map onto DS layer
- * priorities and blending, for the frame being prepared. */
-typedef struct Layout {
-  uint8_t prio[4];          /* DS BG0-BG3 priorities */
-  const uint8_t *obj_prio;  /* SNES sprite priority 0-3 -> DS priority */
-  bool obj_math;            /* sprites with palettes 4-7 blend with the sub screen */
-  uint16_t bldcnt, bldalpha;
-} Layout;
-static Layout s_layout;
-
-static Layout ComputeLayout(const LineRegs *l) {
+static Layout ComputeLayout(const LineRegs *l, unsigned crop_top) {
   /* Normal order: BG1 high, BG1 low, BG2, BG3 (BG3 on top with the mode 1
    * priority bit, used for the status bar and some layer 3 levels). */
   static const uint8_t kObjNormal[4] = {2, 2, 1, 0};
@@ -621,6 +697,15 @@ static Layout ComputeLayout(const LineRegs *l) {
   /* Colour math (add, or add-and-halve; SMW never subtracts in play):
    * main-screen layers with math on blend with what is under them. */
   const uint8_t math = l->cgadsub;
+  r.bldcnt = SubtractFade(l, &r.bldy);  /* windows may refine this (ComputeWindows) */
+  if (r.bldcnt && !s_m7.on && MathEverywhere(crop_top)) {
+    /* No window cuts it out: subtract exactly, in the palettes. */
+    r.bldcnt = 0;
+    r.bldy = 0;
+    r.pal_sub = l->cgadsub & 0x37;
+    r.sub_fixed = l->fixed;
+    r.sub_half = (l->cgadsub & 0x40) != 0;
+  }
   if (!(math & 0x80) && !s_m7.on) {
     uint16_t dst = BLEND_DST_BACKDROP;
     if (sub & 1) dst |= BLEND_DST_BG0 | BLEND_DST_BG1;
@@ -632,9 +717,26 @@ static Layout ComputeLayout(const LineRegs *l) {
     if ((math & 2) && (main & 2)) src |= BLEND_SRC_BG2;
     if ((math & 4) && (main & 4)) src |= BLEND_SRC_BG3;
     r.obj_math = (math & 0x10) && (main & 0x10) && (sub & 0x17);
+    if (r.obj_math) {
+      /* The SNES mixes these sprites with the sub screen even under main
+       * screen layers; the DS can only mix with the layer just below, so
+       * let them mix with whatever is there. */
+      dst |= BLEND_DST_BG0 | BLEND_DST_BG1 | BLEND_DST_BG2 | BLEND_DST_BG3;
+    }
     if (src || r.obj_math) {
       r.bldcnt = (src ? (BLEND_ALPHA | src) : 0) | dst;
       r.bldalpha = (math & 0x40) ? (8 | 8 << 8) : (16 | 16 << 8);
+    }
+    /* Backdrop math with halving (inside ghost houses): where the main
+     * screen is empty the SNES shows (colour 0 + sub screen) / 2, i.e. the
+     * sub-screen-only layers at half brightness (colour 0 is black). */
+    const uint8_t sub_only = sub & ~main & 7;
+    if (!src && (math & 0x60) == 0x60 && sub_only && (s_ppu->cgram[0] & 0x7fff) == 0) {
+      r.bldcnt = (uint16_t)(BLEND_FADE_BLACK | (dst & 0x3f00) |
+                            ((sub_only & 1) ? BLEND_SRC_BG0 | BLEND_SRC_BG1 : 0) |
+                            ((sub_only & 2) ? BLEND_SRC_BG2 : 0) | ((sub_only & 4) ? BLEND_SRC_BG3 : 0));
+      r.bldalpha = 8 | 8 << 8;
+      r.bldy = 8;
     }
   }
   return r;
@@ -667,7 +769,7 @@ void NdsRenderCapture(unsigned crop_top, bool level) {
   ConvertMap(2, DS_BG_MAPS + 0x3000, NULL, 8, 0);
   s_maps_full_refresh = false;
   memset(s_dirty, 0, sizeof(s_dirty));
-  s_layout = ComputeLayout(&s_lines[crop_top + kDsRows / 2]);
+  s_layout = ComputeLayout(&s_lines[crop_top + kDsRows / 2], crop_top);
   UpdateSprites(crop_top, level, s_layout.obj_prio, s_layout.obj_math);
 
   /* Per-line scroll and backdrop for the 192 shown lines. Above the
@@ -698,6 +800,15 @@ void NdsRenderCapture(unsigned crop_top, bool level) {
     sc[5] = l->vs[1] + v_add;
     sc[6] = l3->hs[2];
     sc[7] = l3->vs[2] + v_add;
+    /* SNES vertical mosaic blocks start at SNES line 0, DS ones at the top
+     * of the DS screen; do the vertical part with the line scroll instead
+     * (each line shows the first line of its block). */
+    if (l->mosaic & 0xf0) {
+      const uint16_t back = (uint16_t)((line + 1) % ((l->mosaic >> 4) + 1));
+      if (l->mosaic & 1) { sc[1] -= back; sc[3] -= back; }
+      if (l->mosaic & 2) sc[5] -= back;
+      if (l3->mosaic & 4) sc[7] -= back;
+    }
     s_backdrop[t][y] = Backdrop(l);
     s_winpos[t][y] = DsWindowSpan(l->w1l, l->w1r) | (uint32_t)DsWindowSpan(l->w2l, l->w2r) << 16;
     if (s_m7.on) Mode7Row((l->bgmode & 7) == 7 ? l : s_m7_line, line + 1, sc);
@@ -724,9 +835,6 @@ void NdsRenderCapture(unsigned crop_top, bool level) {
 
 /* During VBlank: registers and small tables first (they must not change
  * mid-picture), then the changed tiles and map entries. */
-#ifdef SMW_NDS_TEST
-volatile uint32_t g_test_m7_bad_map, g_test_m7_bad_tiles;  /* checked after uploads */
-#endif
 
 void NdsRenderPresent(void) {
   const Ppu *p = s_ppu;
@@ -751,7 +859,7 @@ void NdsRenderPresent(void) {
   REG_BG3CNT = BG_PRIORITY(lay->prio[3]) | BG_TILE_BASE(8) | BG_MAP_BASE(12) | BG_COLOR_16 |
                MapSizeBits(2) | ((mid->mosaic & 4) ? mosaic_on : 0);
   const unsigned m = (mid->mosaic >> 4) & 15;
-  REG_MOSAIC = m | (m << 4);
+  REG_MOSAIC = m;  /* horizontal only: vertical is done per line */
 
   const uint8_t shown = mid->main | mid->sub;
   uint32_t dispcnt = MODE_0_2D | DISPLAY_SCREEN_BASE(1) | DISPLAY_SPR_2D;
@@ -782,7 +890,7 @@ void NdsRenderPresent(void) {
   REG_BLDCNT = win.bldcnt ? (uint16_t)(win.bldcnt | (lay->obj_math ? (lay->bldcnt & 0x3f00) : 0))
                           : lay->bldcnt;
   REG_BLDALPHA = lay->bldalpha;
-  REG_BLDY = win.bldy;
+  REG_BLDY = win.bldcnt ? win.bldy : lay->bldy;
   StartWindowDma(s_table, win.dispcnt_bits != 0);
   REG_DISPCNT = dispcnt;
   s_shown_windows = win.dispcnt_bits != 0;
@@ -856,16 +964,5 @@ void NdsRenderPresent(void) {
       }
     }
   }
-#ifdef SMW_NDS_TEST
-  if (s_m7_active) {
-    const uint8_t *map = (const uint8_t *)VRAM_M7_MAP, *tiles = (const uint8_t *)VRAM_M7_TILES;
-    uint32_t bm = 0, bt = 0;
-    for (int i = 0; i < 16384; i++) {
-      bm += map[i] != (uint8_t)s_ppu->vram[i];
-      bt += tiles[i] != (uint8_t)(s_ppu->vram[i] >> 8);
-    }
-    g_test_m7_bad_map = bm;
-    g_test_m7_bad_tiles = bt;
-  }
-#endif
+
 }

@@ -95,15 +95,17 @@ static uint32_t ReadPad(void) {
  * lines: a smart camera keeps the bottom of the level in view (like the
  * SNES picture without its status bar) and slides up when Mario goes high,
  * so he and what's above him are never cut off. "In a level" includes the
- * fade-in (modes $12-$13) and the fade-out back to the map ($0B-$0D after a
- * level), so the status bar never shows for a moment. */
+ * fade-in (modes $12-$13) and the fade-out back to the map ($0B after a
+ * level; $0C-$0D already load and fade in the map), so the status bar never shows for a moment. ($11 loads the
+ * level, and may already show it through the mosaic fade.) */
 static bool s_level_scene;
 
 static unsigned CropTop(const uint8_t *game_ram) {
   static int cam = 32;
   const uint8_t mode = game_ram[0x100];
-  if (mode >= 0x12 && mode <= 0x16) s_level_scene = true;
-  else if (!(mode >= 0x0b && mode <= 0x0d && s_level_scene)) s_level_scene = false;
+  if (mode >= 0x11 && mode <= 0x16) s_level_scene = true;
+  else if (!((mode == 0x0b || mode == 0x0f || mode == 0x10) && s_level_scene))
+    s_level_scene = false;  /* $0F-$10 after a level: going through a pipe or door */
   if (!s_level_scene) {
     cam = 32;
     return 16;
@@ -122,6 +124,7 @@ static unsigned CropTop(const uint8_t *game_ram) {
 #ifdef SMW_NDS_TEST
 volatile uint8_t g_test_pause;  /* test builds: tools/dstest freezes the game */
 volatile uint32_t g_test_late;  /* frames that missed their VBlank (not counting tests) */
+volatile uint32_t g_test_ticks[3];
 extern volatile uint8_t g_test_ref_on;
 #endif
 
@@ -167,9 +170,20 @@ int main(void) {
 #endif
     {
       PortRunFrame(NdsHudInput(ReadPad()));
+#ifdef SMW_NDS_TEST
+      const uint32_t t1 = NdsTimingTicks();
+#endif
       NdsAudioFrame();
+#ifdef SMW_NDS_TEST
+      const uint32_t t2 = NdsTimingTicks();
+#endif
       const unsigned crop = CropTop(PortGameRam());
       NdsRenderCapture(crop, s_level_scene);
+#ifdef SMW_NDS_TEST
+      g_test_ticks[0] = t1 - t0;                  /* game logic */
+      g_test_ticks[1] = t2 - t1;                  /* audio */
+      g_test_ticks[2] = NdsTimingTicks() - t2;    /* capture (547 ticks = 1 frame) */
+#endif
     }
     busy_ticks += NdsTimingTicks() - t0;
 #ifdef SMW_NDS_TEST_DROP
