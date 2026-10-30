@@ -68,6 +68,9 @@ and touch features.
   pipe/door fades, ghost house lighting (half colour math), dark rooms
   (fixed-colour subtract), layer priorities (enemy roll call names,
   sinking castles, map sprites behind the border).
+- **v0.5.2 (Oct 29, 2026):** sprites hide behind pipes correctly in the
+  Lemmy/Wendy rooms. Re-check of all levels with the v0.5.1 fixes reached
+  level 0x0ED of 0x1FF; the rest is next.
 
 ## Next milestones
 

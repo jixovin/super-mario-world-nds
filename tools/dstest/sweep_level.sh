@@ -3,7 +3,7 @@
 # compare 6 DS pictures with the reference; append a summary line to LOG.
 L=$1; LOG=${2:-/tmp/sweep.log}; OUT=/tmp/sw/$L
 CAP="set:g_test_ref_on,1 4 set:g_test_pause,1 16 shot refshot set:g_test_pause,0 set:g_test_ref_on,0"
-LATE=$(grep -E "^\s+0x[0-9a-f]+\s+g_test_late$" /tmp/emu/test.map | awk '{print $1}')
+LATE=$(grep -E "^\s+0x[0-9a-f]+\s+g_test_late$" ${MAP:-/tmp/emu/test.map} | awk '{print $1}')
 STEPS=""
 for i in 1 2 3 4 5 6; do STEPS="$STEPS 90:right+y 25:right+y+b $CAP"; done
 R=$(timeout 300 /home/claude/dstest.sh $OUT mode:07 90 10:start mode:08 40 10:start mode:0a 40 10:a mode:14 900 10:b mode:0e 90 \

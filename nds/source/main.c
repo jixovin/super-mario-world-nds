@@ -22,7 +22,7 @@
 #include "smw_assets_bin.h"
 #endif
 
-#define SMW_NDS_VERSION "0.5.1"
+#define SMW_NDS_VERSION "0.5.2"
 
 void PortPlatformFatal(const char *message) {
   consoleDemoInit(); /* the bottom screen may be showing the HUD */
