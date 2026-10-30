@@ -719,7 +719,7 @@ static Layout ComputeLayout(const LineRegs *l, unsigned crop_top) {
     /* With the BG3 priority bit (map, cutscenes) BG3's high tiles are in
      * front of all sprites (e.g. the black text area hides the sinking
      * castle); BG3 is drawn whole on top, so sprites go behind it. */
-    static const uint8_t kObjBehindBg3[4] = {3, 2, 1, 1};
+    static const uint8_t kObjBehindBg3[4] = {3, 3, 2, 1};
     const bool bg2_sub_only = !(main & 2) && (sub & 2);
     /* BG2 split (see s_split2): DS BG0 = BG2 high, BG1 = BG1, BG2 = BG2 low. */
     static const uint8_t kObjSplit2Bg3[4] = {3, 3, 2, 1}, kObjSplit2[4] = {3, 2, 1, 0};
