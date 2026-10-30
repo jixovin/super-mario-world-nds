@@ -62,6 +62,12 @@ and touch features.
   DS sound capture units; map lives icon fixed (OAM priority rotation).
   New test build (SMW_NDS_TEST) renders the SNES reference picture in the
   same pass, with level warp, for automatic comparisons.
+- **v0.5.1 (Oct 29, 2026):** fixes from the automated sweep (every level
+  number, all 7 maps, title/demo, the 7 castle cutscenes and the whole
+  ending compared with the reference picture): mosaic fades, crop during
+  pipe/door fades, ghost house lighting (half colour math), dark rooms
+  (fixed-colour subtract), layer priorities (enemy roll call names,
+  sinking castles, map sprites behind the border).
 
 ## Next milestones
 
