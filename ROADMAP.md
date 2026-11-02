@@ -71,6 +71,14 @@ and touch features.
 - **v0.5.2 (Oct 29, 2026):** sprites hide behind pipes correctly in the
   Lemmy/Wendy rooms. Re-check of all levels with the v0.5.1 fixes reached
   level 0x0ED of 0x1FF; the rest is next.
+- **v0.6.0 (Nov 1, 2026):** Liz's hardware report: in Yoshi's Island 4 the
+  pipe back from the bonus area dropped Mario into a broken area. Cause:
+  snesrev's asset tool left the secondary-entrance tables empty for an
+  unmodified ROM, so every pipe/door using a secondary exit (many across
+  the game) loaded garbage. Fixed in the asset tool; old data files are
+  rejected. New checks: every screen exit of every level followed two deep
+  and compared with the original game code running in snesrev's 65816
+  emulator (hostrun THEIRS=/SMW_COMPARE=), all identical.
 
 ## Next milestones
 

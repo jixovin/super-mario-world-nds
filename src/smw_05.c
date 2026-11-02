@@ -1,3 +1,4 @@
+#include <string.h>
 #include "consts.h"
 #include "funcs.h"
 #include "smw_rtl.h"
@@ -9,6 +10,8 @@
  * loads level number (value & 0x1ff) instead of the one under Mario. Only
  * the test tools set it. */
 uint16 g_smw_nds_force_level;
+uint16 g_smw_nds_last_level;  /* smw-nds: level number LoadLevel loaded (for tests) */
+uint8 g_smw_nds_mark_exits;   /* smw-nds tests: mark screen exits the new level doesn't set */
 void (*kBufferScrollingTiles_Layer1_Main_PtrsLong058823[32])(void) = {
     &BufferScrollingTiles_Layer1,
     &BufferScrollingTiles_Layer1,
@@ -2406,6 +2409,9 @@ bool LoadLevel() {  // 05d796
       r14w = g_smw_nds_force_level & 0x1ff;
   }
   
+  g_smw_nds_last_level = r14w;
+  if (g_smw_nds_mark_exits)
+    memset(misc_subscreen_exit_entrance_number_lo, 0xee, 32);
   ptr_layer1_data = kLevelData_Layer1(r14w).ptr;
   ptr_layer2_data = kLevelData_Layer2(r14w).ptr;
   ptr_layer2_is_bg = kLevelData_Layer2_IsBg[r14w];

@@ -59,7 +59,8 @@ static void StatLineHook(int line) {
   ppu_runLine(g_ppu, line);
 }
 
-extern uint16_t g_smw_nds_force_level;
+extern uint16_t g_smw_nds_force_level, g_smw_nds_last_level;
+extern uint8_t g_smw_nds_mark_exits;
 
 /* "shotlayers MASK": render the current frame state again with only the
  * SNES layers in MASK (1=BG1 2=BG2 4=BG3 16=OBJ), for debugging. */
@@ -128,7 +129,9 @@ static uint8_t g_pin_val[8];
 static FILE *g_wav;
 static uint32_t g_wav_samples;
 
+int g_hr_frame;
 static void RunOneFrame(uint32_t buttons) {
+  g_hr_frame++;
   for (int i = 0; i < 8; i++)
     if (g_pin_addr[i] >= 0) PortGameRam()[g_pin_addr[i]] = g_pin_val[i];
   PortRunFrame(buttons);
@@ -145,12 +148,21 @@ int main(int argc, char **argv) {
     fprintf(stderr, "usage: hostrun smw_assets.dat out_dir script.txt\n");
     return 2;
   }
+  setvbuf(stdout, NULL, _IOLBF, 0);
   size_t size;
   uint8_t *assets = ReadFile(argv[1], &size);
   if (!assets) PortPlatformFatal("cannot read assets");
   const char *err = PortLoadAssets(assets, size);
   if (err) PortPlatformFatal(err);
-  PortInitGame();
+  if (getenv("THEIRS")) {  /* THEIRS=<rom.sfc>: run the original code (reference) */
+    size_t rom_size;
+    uint8_t *rom = ReadFile(getenv("THEIRS"), &rom_size);
+    if (!rom) PortPlatformFatal("cannot read ROM");
+    PortInitGameFromRom(rom, rom_size);
+  } else {
+    PortInitGame();
+  }
+  g_smw_nds_mark_exits = !getenv("SMW_COMPARE");
   if (getenv("LOADSAVE")) PortLoadSave();  /* saves/smw.srm in the current directory */
   if (getenv("WAV")) {
     g_wav = fopen(getenv("WAV"), "wb");
@@ -187,12 +199,40 @@ int main(int argc, char **argv) {
       unsigned lo = 0, hi = 0;
       sscanf(line + 9, "%x %x", &lo, &hi);
       const uint8_t *r = PortGameRam();
+      const bool vert = r[0x5b] & 1;
+      const int per = vert ? 0x200 : 0x1b0;  /* tiles per screen */
       for (int i = 0; i < 0x3800; i++) {
         const unsigned t = r[0xc800 + i] | r[0x1c800 + i] << 8;
         if (t >= lo && t <= hi)
-          printf(" tile %03x at screen %d x=%d y=%d (px %d,%d)\n", t, i / 0x1b0, i % 16, (i % 0x1b0) / 16,
-                 (i / 0x1b0) * 256 + (i % 16) * 16, ((i % 0x1b0) / 16) * 16);
+          printf(" tile %03x at screen %d x=%d y=%d\n", t, i / per, i % 16, (i % per) / 16);
       }
+      continue;
+    }
+    if (strncmp(line, "poke ", 5) == 0) {  /* "poke ADDR VAL [COUNT]": write game RAM once */
+      unsigned a = 0, v = 0, n = 1;
+      sscanf(line + 5, "%x %x %u", &a, &v, &n);
+      for (unsigned i = 0; i < n; i++) PortGameRam()[(a + i) & 0x1ffff] = (uint8_t)v;
+      continue;
+    }
+    if (strncmp(line, "exits", 5) == 0) {  /* screen exits set by the level (others hold 0xEE) */
+      const uint8_t *r = PortGameRam();
+      for (int i = 0; i < 32; i++)
+        if (r[0x19b8 + i] != 0xee) printf(" exit screen %d -> %02x props %02x\n", i, r[0x19b8 + i], r[0x19d8 + i]);
+      continue;
+    }
+    if (strncmp(line, "lvlhdr ", 7) == 0) {  /* "lvlhdr XXX": layer 1 header bytes of a level */
+      unsigned n = 0;
+      sscanf(line + 7, "%x", &n);
+      MemBlk b = FindInAssetArray(43, n);
+      printf(" lvlhdr %03x size=%u:", n, (unsigned)b.size);
+      for (int i = 0; i < 8 && i < (int)b.size; i++) printf(" %02x", b.ptr[i]);
+      printf("\n");
+      continue;
+    }
+    if (strncmp(line, "lastlevel", 9) == 0) {
+      const uint8_t *r = PortGameRam();
+      printf(" lastlevel %03x mode=%02x anim=%02x vert=%d x=%d y=%d\n", g_smw_nds_last_level, r[0x100], r[0x71],
+             r[0x5b] & 1, r[0x94] | r[0x95] << 8, r[0x96] | r[0x97] << 8);
       continue;
     }
     if (strncmp(line, "asset ", 6) == 0) {  /* "asset N IDX": size and byte */
@@ -215,7 +255,7 @@ int main(int argc, char **argv) {
       g_layer_mask = (uint8_t)m;
       for (unsigned i = 0; i < n; i++, frame++) {
         RunOneFrame(0);
-        PpuBeginDrawing(g_my_ppu, g_pixels, 256 * 4, 0);
+        PpuBeginDrawing(g_ppu, g_pixels, 256 * 4, 0);
         PortRunPpuLines(&MaskLineHook);
       }
       g_layer_mask = 0xff;
@@ -233,7 +273,7 @@ int main(int argc, char **argv) {
       memset(g_stat_count, 0, sizeof(g_stat_count));
       for (int i = 0; i < n; i++, frame++) {
         RunOneFrame(buttons);
-        PpuBeginDrawing(g_my_ppu, g_pixels, 256 * 4, 0);
+        PpuBeginDrawing(g_ppu, g_pixels, 256 * 4, 0);
         PortRunPpuLines(&StatLineHook);
       }
       for (int i = 0; i < g_stat_n; i++) {

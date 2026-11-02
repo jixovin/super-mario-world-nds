@@ -36,6 +36,7 @@ const char *PortLoadAssets(const uint8_t *data, size_t length);
 
 /* Start the game with no ROM attached (native code only). */
 void PortInitGame(void);
+void PortInitGameFromRom(const uint8_t *rom, size_t size);
 
 /* Load saves/smw.srm (relative to the current directory) if it exists.
  * The game writes the file itself when it saves. */

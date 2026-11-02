@@ -3,6 +3,7 @@
 #include "smw_port.h"
 
 #include <stdarg.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -88,8 +89,16 @@ const uint8 *FindPtrInAsset(int asset, uint32 addr) {
 }
 
 void PortInitGame(void) {
+  PortInitGameFromRom(NULL, 0);
+}
+
+/* Test tools only: with a ROM, run the original game code in snesrev's
+ * 65816 emulator instead (RM_THEIRS), as a reference. */
+extern uint8 g_runmode;
+void PortInitGameFromRom(const uint8_t *rom, size_t size) {
+  if (rom && !getenv("SMW_COMPARE")) g_runmode = 2;  /* RM_THEIRS; else RM_BOTH: compare every frame */
   /* No ROM: snesrev runs only its own reimplemented code (RM_MINE). */
-  if (SnesInit(NULL, 0) == NULL)
+  if (SnesInit(rom, (int)size) == NULL)
     Die("Game initialisation failed");
   g_spc_player = SmwSpcPlayer_Create();
   g_spc_player->initialize(g_spc_player);
@@ -211,7 +220,7 @@ void PortRunFrame(uint32_t buttons) {
 }
 
 void PortRenderSoftware(uint8_t *pixels, size_t pitch) {
-  PpuBeginDrawing(g_my_ppu, pixels, pitch, 0);
+  PpuBeginDrawing(g_ppu, pixels, pitch, 0);  /* g_my_ppu, or the emulated one (tests) */
   g_rtl_game_info->draw_ppu_frame();
 }
 

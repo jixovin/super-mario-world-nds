@@ -6,7 +6,7 @@ native ARM code, and the picture is drawn by the DS's 2D graphics hardware.
 The top screen shows the game; the bottom screen shows the status screen
 and touch features.
 
-## Current state (v0.5.0)
+## Current state (v0.6.0)
 
 - Runs at full speed (60 fps) on a real DS Lite + R4 (tested through most
   of Yoshi's Island 1).
@@ -29,8 +29,11 @@ and touch features.
   above him in view.
 - Mode 7 boss rooms (Iggy/Larry, Morton/Roy/Ludwig, Reznor, Bowser),
   translucent effects (ghost house fog etc.) and music echo.
-- In progress: a sweep of every level, cutscene and the ending against the
-  reference picture (tools/dstest/sweep_level.sh).
+- Every pipe and door in the game leads where it should (v0.6.0 fixed the
+  data for exits that go back into a level, e.g. Yoshi's Island 4's pipe).
+- Checked automatically: every level, map, castle cutscene and the ending
+  against the reference picture; every pipe/door exit two deep, and
+  whole level runs, against the original game code (see tools/).
 
 See [the roadmap](ROADMAP.md) for what's next.
 
@@ -52,7 +55,8 @@ See [the roadmap](ROADMAP.md) for what's next.
 2. Copy your Super Mario World (USA) ROM to `roms\smw.sfc`
    (unheadered, CRC32 `B19ED489`).
 3. Double-click `build.bat`. The first run extracts the game data from your
-   ROM into `nds\data\` (kept on your PC only).
+   ROM into `nds\data\` (kept on your PC only). It is made again
+   automatically when a new version needs different data.
 4. Copy `nds\smw-nds.nds` to your flashcart's microSD card.
 
 The GitHub Actions build checks that everything compiles. Because it never
