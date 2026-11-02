@@ -79,6 +79,13 @@ and touch features.
   rejected. New checks: every screen exit of every level followed two deep
   and compared with the original game code running in snesrev's 65816
   emulator (hostrun THEIRS=/SMW_COMPARE=), all identical.
+  Out-of-bounds table reads found with UBSan fixed (Cheep Cheep swimming,
+  pipe entry drift, castle destruction scene and others), each by
+  extending the table with the ROM bytes that follow it; every-frame
+  comparison with the original code is now identical in every level.
+  New bottom screen: themed pixel-art backgrounds (map per world, and a
+  scene per level setting), opaque panels, everything on a 2-pixel grid;
+  Mario walks along the ground to the goal posts as the progress marker.
 
 ## Next milestones
 

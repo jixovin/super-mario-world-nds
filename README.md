@@ -14,12 +14,17 @@ and touch features.
   to the DS 2D engine each frame; scanline effects use HBlank DMA.
 - Music and sound effects: the game's own sound driver runs, and the SNES
   sound chip's 8 voices are played on the DS's hardware sound channels
-  (samples decoded from the SNES format once and cached). No echo yet.
-- Bottom screen: a game-themed status screen (sky, hills and panels) with
-  the level name, big lives/coins/time/score counters drawn with the
-  game's own digits and icons, a large reserve-item box (tap it to use the
-  item), a level-progress track with Mario on it, and an FPS counter (tap
-  it to hide or show).
+  (samples decoded from the SNES format once and cached), with the echo
+  done through the DS's sound capture units.
+- Bottom screen: a pixel-art status screen whose background matches where
+  you are: the overworld map (coloured per world), or the level's setting
+  (grass, sky, cave, water, castle over lava, ghost house, forest, ice,
+  night/Star Road, switch palaces in their own colour, Chocolate Island).
+  On it: the level name, big lives/coins/time/score counters drawn with
+  the game's own digits and icons, a large reserve-item box (tap it to use
+  the item), Mario walking along the ground towards the goal posts as he
+  gets through the level, and an FPS counter (tap it to hide or show).
+  Everything is drawn on an exact 2-pixel grid, with no blending.
 - SNES window effects: message boxes, keyhole and circle wipes.
 - Saves go to `/_nds/smw-nds/saves/` on the SD card, alternating between
   `smw-a.srm` and `smw-b.srm` (each written as a new file and checked by

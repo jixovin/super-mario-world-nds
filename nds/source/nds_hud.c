@@ -1,20 +1,24 @@
 /* Bottom screen: a game-themed status screen.
  *
- * A 16-bit bitmap (sub engine BG3) holds a hand-drawn SMW-style scene (sky,
- * clouds, hills, grass) with semi-transparent panels on top:
+ * A 16-bit bitmap (sub engine BG3) holds a pixel-art scene that matches
+ * where the player is (the overworld map, or the level's setting: grass,
+ * sky, cave, water, castle/lava, ghost house, forest, ice, night, switch
+ * palace, Chocolate Island; see nds_hud_art.c), with opaque panels on top:
  *   - the level name, in the game's own message font;
  *   - lives, coins and time, using the status bar's digits and icons at 2x;
  *   - the score;
  *   - a large reserve-item box (tap it to use the item = Select);
- *   - a level progress track with a live Mario marker (a sprite using the
- *     player's current graphics);
+ *   - Mario walking along the ground towards the goal posts as he moves
+ *     through the level (a sprite using the player's current graphics);
  *   - a small FPS counter in the corner (tap it to hide/show).
  *
+ * Everything is on a 2-pixel grid, so 2x glyphs and art line up exactly.
  * Glyphs are copied from the converted BG3 tiles once the game has loaded
  * them (in a level or on the overworld). Only values that change are
  * redrawn, from a cached copy of the static layout.
  */
 #include "nds_hud.h"
+#include "nds_hud_art.h"
 
 #include <nds.h>
 #include <string.h>
@@ -36,14 +40,18 @@ enum { kW = 256, kH = 192 };
 
 enum { kLayoutNone, kLayoutLevel, kLayoutOverworld };
 
-/* Panels: name across the top, counters left, item + score right, the
- * progress track above the ground. */
+/* Everything sits on a 2-pixel grid (panels, 2x glyphs, the scene art).
+ * Name across the top, counters left, item + score right; below the panels
+ * the scene, whose ground (y=176) is the level progress track. */
 enum {
-  kNameX = 8, kNameY = 6, kNameW = 240, kNameH = 20,
-  kLeftX = 8, kLeftY = 32, kLeftW = 120, kLeftH = 114,
-  kRightX = 132, kRightY = 32, kRightW = 116, kRightH = 114,
-  kTrackX = 8, kTrackY = 151, kTrackW = 240, kTrackH = 18,
-  kBoxX = 158, kBoxY = 38,   /* 64x64: the status-bar item box at 2x */
+  kNameX = 8, kNameY = 4, kNameW = 240, kNameH = 20,
+  kLeftX = 8, kLeftY = 28, kLeftW = 116, kLeftH = 108,
+  kRightX = 132, kRightY = 28, kRightW = 116, kRightH = 108,
+  kBoxX = 158, kBoxY = 34,      /* 64x64: the status-bar item box at 2x */
+  kGroundY = 176,               /* top of the ground; Mario's feet */
+  kTrackX0 = 16, kTrackX1 = 168, kGoalX = 176,
+  kFpsX = 194, kFpsY = 176, kFpsW = 60, kFpsH = 16,
+  kMsgX = 2, kMsgY = 176, kMsgW = 108, kMsgH = 16,
 };
 
 /* ---- state ------------------------------------------------------------- */
@@ -59,6 +67,7 @@ static Ppu *s_ppu;
 /* Last drawn values (-1 = redraw). */
 static int s_drawn_lives, s_drawn_coins, s_drawn_time, s_drawn_fps, s_drawn_name;
 static int32_t s_drawn_score;
+static int s_seen_saves, s_message_frames, s_score_scale;
 
 /* ---- glyphs from the game's BG3 graphics ------------------------------ */
 
@@ -112,13 +121,6 @@ static inline void Put(uint16_t *fb, int x, int y, uint16_t c) {
   if ((unsigned)x < kW && (unsigned)y < kH) fb[y * kW + x] = c;
 }
 
-static uint16_t Blend(uint16_t a, uint16_t b, int t /* 0..16: amount of b */) {
-  const int r = ((a & 31) * (16 - t) + (b & 31) * t) >> 4;
-  const int g = (((a >> 5) & 31) * (16 - t) + ((b >> 5) & 31) * t) >> 4;
-  const int bl = (((a >> 10) & 31) * (16 - t) + ((b >> 10) & 31) * t) >> 4;
-  return C(r, g, bl);
-}
-
 /* Glyph at integer scale, with a 1-scaled-pixel dark drop shadow. */
 static void DrawGlyph(uint16_t *fb, const Glyph *g, int x, int y, int s, bool shadow,
                       bool hflip, bool vflip) {
@@ -152,83 +154,49 @@ static void DrawFontText(uint16_t *fb, const char *s, int x, int y) {
   }
 }
 
-static void FillCircle(uint16_t *fb, int cx, int cy, int r, uint16_t c) {
-  for (int y = -r; y <= r; y++)
-    for (int x = -r; x <= r; x++)
-      if (x * x + y * y <= r * r) Put(fb, cx + x, cy + y, c);
-}
+/* ---- themes -------------------------------------------------------------- */
 
-/* ---- the scene --------------------------------------------------------- */
+static int s_theme = kThemeGrass, s_variant;
 
-static void Cloud(uint16_t *fb, int x, int y) {
-  const uint16_t shade = C(24, 28, 31), white = C(31, 31, 31);
-  FillCircle(fb, x, y + 2, 9, shade);
-  FillCircle(fb, x + 12, y - 3, 11, shade);
-  FillCircle(fb, x + 26, y + 2, 9, shade);
-  FillCircle(fb, x, y, 8, white);
-  FillCircle(fb, x + 12, y - 5, 10, white);
-  FillCircle(fb, x + 26, y, 8, white);
-}
-
-/* A rounded SMW-style hill: a tall half-ellipse with a dark outline. */
-static void Hill(uint16_t *fb, int cx, int base, int rx, int ry, uint16_t fill, uint16_t light) {
-  const uint16_t outline = C(1, 7, 3);
-  for (int y = base - ry - 1; y <= base; y++) {
-    for (int x = cx - rx - 1; x <= cx + rx + 1; x++) {
-      const int dx = x - cx, dy = y - base;
-      const int64_t in = (int64_t)dx * dx * ry * ry + (int64_t)dy * dy * rx * rx;
-      const int64_t r2 = (int64_t)rx * rx * ry * ry;
-      if (in > r2) continue;
-      const int64_t in2 = (int64_t)(dx < 0 ? dx - 2 : dx + 2) * (dx < 0 ? dx - 2 : dx + 2) * ry * ry +
-                          (int64_t)(dy - 2) * (dy - 2) * rx * rx;
-      uint16_t c = fill;
-      if (in2 > r2) c = outline;
-      else if (dx < -rx / 3 && dy < -ry / 3) c = light;
-      Put(fb, x, y, c);
-    }
+/* The bottom screen's theme for the current scene: the overworld by
+ * submap; levels by their graphics set, water/ice flags and world. */
+static void PickTheme(int layout, int *theme, int *variant) {
+  const uint8_t *ram = PortGameRam();
+  const uint8_t submap = ram[0x1f11 + (ram[0xdb3] & 1)];
+  *variant = 0;
+  if (layout == kLayoutOverworld) {
+    *theme = kThemeMap;
+    *variant = submap;
+    return;
   }
+  const uint8_t tileset = ram[0x1931], tl = ram[0x13bf];
+  int t;
+  if (PPU_mode(s_ppu) == 7 || tileset == 1 || tileset == 0xb) t = kThemeCastle;
+  else if (tileset == 5 || tileset == 0xd) t = kThemeGhost;
+  else if (ram[0x85]) t = kThemeWater;
+  else if (tl == 0x14 || tl == 0x08 || tl == 0x3f || tl == 0x45) {
+    t = kThemePalace;
+    *variant = tl == 0x14 ? 0 : tl == 0x08 ? 1 : tl == 0x3f ? 2 : 3;
+  } else if (ram[0x86]) t = kThemeSnow;
+  else if (tileset == 3 || tileset == 9 || tileset == 0xe) t = kThemeCave;
+  else if (submap == 6 || submap == 5 || tl == 0x12 || tl == 0x16 || tl == 0x1e || tl == 0x2c ||
+           tl == 0x30 || (tl >= 0x48 && tl <= 0x5c)) {
+    t = kThemeNight;
+    *variant = (tl >= 0x49 && tl <= 0x51) ? 1 : 0;
+  } else if (tl == 0x1c || tl == 0x1d || tl == 0x22 || tl == 0x23 || tl == 0x24 || tl == 0x3b) t = kThemeChocolate;
+  else if (submap == 3 || (tl >= 0x42 && tl <= 0x47 && tl != 0x45)) t = kThemeForest;
+  else if (tileset == 2 || tileset == 6 || tileset == 8 || tileset == 0xc) t = kThemeSky;
+  else if (submap == 4 || submap == 2) t = kThemeCave;
+  else t = kThemeGrass;
+  *theme = t;
 }
 
 static void DrawScene(void) {
-  uint16_t *fb = s_scene;
-  for (int y = 0; y < kH; y++) {
-    const int t = y * 16 / kH;
-    const uint16_t c = Blend(C(10, 19, 31), C(22, 28, 31), t);
-    for (int x = 0; x < kW; x++) fb[y * kW + x] = c;
-  }
-  Cloud(fb, 30, 40);
-  Cloud(fb, 190, 70);
-  Cloud(fb, 120, 120);
-  Hill(fb, 40, 178, 34, 70, C(9, 24, 10), C(16, 29, 14));
-  Hill(fb, 214, 178, 30, 56, C(9, 24, 10), C(16, 29, 14));
-  Hill(fb, 128, 178, 26, 34, C(4, 18, 6), C(10, 24, 9));
-  /* Grass edge and dirt with the game's diagonal stripes. */
-  for (int y = 172; y < kH; y++) {
-    for (int x = 0; x < kW; x++) {
-      uint16_t c;
-      if (y == 172) c = C(1, 7, 2);
-      else if (y < 178) c = C(5, 23, 4);
-      else if (y == 178) c = C(3, 13, 3);
-      else c = ((x + y) % 12 < 2) ? C(23, 14, 6) : C(29, 20, 9);
-      fb[y * kW + x] = c;
-    }
-  }
+  HudArtDrawScene(s_scene, s_theme, s_variant);
 }
 
-/* Semi-transparent rounded panel with a light border. */
-static void Panel(uint16_t *fb, int x0, int y0, int w, int h) {
-  const int r = 5;
-  for (int y = 0; y < h; y++) {
-    for (int x = 0; x < w; x++) {
-      const int cx = x < r ? r - x : x >= w - r ? x - (w - r - 1) : 0;
-      const int cy = y < r ? r - y : y >= h - r ? y - (h - r - 1) : 0;
-      const int d = cx * cx + cy * cy;
-      if (d > r * r) continue;
-      const bool edge = x == 0 || y == 0 || x == w - 1 || y == h - 1 || d > (r - 1) * (r - 1);
-      uint16_t *p = &fb[(y0 + y) * kW + x0 + x];
-      *p = edge ? C(29, 30, 31) : Blend(*p, C(2, 3, 10), 11);
-    }
-  }
+static void Panel(uint16_t *fb, int x, int y, int w, int h) {
+  HudArtPanel(fb, s_theme, x, y, w, h);
 }
 
 /* The status bar's item box (corner/edge tiles) at 2x: 64x64. */
@@ -252,8 +220,8 @@ static void BuildLayout(int layout) {
     Panel(s_base, kLeftX, kLeftY, kLeftW, kLeftH);
     Panel(s_base, kRightX, kRightY, kRightW, kRightH);
     for (int i = 0; i < 5; i++)
-      DrawGlyph(s_base, &s_glyph[kGlyphMario + i], kLeftX + 20 + i * 16, kLeftY + 8, 2, true, false, false);
-    DrawGlyph(s_base, &s_glyph[kGlyphX], kLeftX + 40, kLeftY + 30, 2, true, false, false);
+      DrawGlyph(s_base, &s_glyph[kGlyphMario + i], kLeftX + 18 + i * 16, kLeftY + 8, 2, true, false, false);
+    DrawGlyph(s_base, &s_glyph[kGlyphX], kLeftX + 40, kLeftY + 32, 2, true, false, false);
     DrawGlyph(s_base, &s_glyph[kGlyphCoin], kLeftX + 12, kLeftY + 56, 2, true, false, false);
     DrawGlyph(s_base, &s_glyph[kGlyphX], kLeftX + 40, kLeftY + 56, 2, true, false, false);
     DrawItemBox(s_base, kBoxX, kBoxY);
@@ -261,26 +229,15 @@ static void BuildLayout(int layout) {
   if (layout == kLayoutLevel) {
     DrawFontText(s_base, "Touch to use", kRightX + 10, kBoxY + 68);
     for (int i = 0; i < 3; i++)
-      DrawGlyph(s_base, &s_glyph[kGlyphTime + i], kLeftX + 8 + i * 16, kLeftY + 86, 2, true, false, false);
-    Panel(s_base, kTrackX, kTrackY, kTrackW, kTrackH);
-    /* Track line from the start post to the goal posts. */
-    const int ty = kTrackY + 11;
-    for (int x = kTrackX + 14; x < kTrackX + kTrackW - 16; x++) {
-      Put(s_base, x, ty, C(29, 30, 31));
-      Put(s_base, x, ty + 1, C(12, 14, 20));
-    }
-    for (int y = kTrackY + 3; y < kTrackY + 15; y++) {
-      Put(s_base, kTrackX + 12, y, C(29, 30, 31));
-      Put(s_base, kTrackX + kTrackW - 16, y, C(31, 26, 4));
-      Put(s_base, kTrackX + kTrackW - 9, y, C(31, 26, 4));
-    }
-    for (int x = kTrackX + kTrackW - 15; x < kTrackX + kTrackW - 9; x++)
-      Put(s_base, x, kTrackY + 6, C(31, 8, 8));  /* goal tape */
+      DrawGlyph(s_base, &s_glyph[kGlyphTime + i], kLeftX + 10 + i * 16, kLeftY + 80, 2, true, false, false);
+    HudArtGoal(s_base, kGoalX);
   }
   /* CPU copy: DMA channel 3 is the top screen's per-line DISPCNT channel. */
   memcpy((void *)SUB_FB, s_base, sizeof(s_base));
   s_drawn_lives = s_drawn_coins = s_drawn_time = s_drawn_fps = s_drawn_name = -1;
   s_drawn_score = -1;
+  s_message_frames = 0;
+  s_score_scale = 0;
 }
 
 /* Restore a rectangle of the static layout (in video memory). */
@@ -289,37 +246,36 @@ static void Restore(int x0, int y0, int w, int h) {
     memcpy(&SUB_FB[y * kW + x0], &s_base[y * kW + x0], (size_t)w * 2);
 }
 
-/* Draw a number with the status-bar digits. Draws into video memory via a
- * small scratch area: render into s_scratch, then copy the rectangle. */
-static uint16_t s_scratch[kW * 40];
+/* Scratch rows for composing a strip before copying it to video memory. */
+static uint16_t s_scratch[kW * 24];
 
-static void DrawNumber(int value, int digits, int x, int y, int scale, bool zero_pad, int right_x) {
+static void BeginStrip(int y, int h) {
+  memcpy(s_scratch, &s_base[y * kW], (size_t)h * kW * 2);
+}
+
+static void EndStrip(int y, int h, int x0, int x1) {
+  for (int r = 0; r < h; r++)
+    memcpy(&SUB_FB[(y + r) * kW + x0], &s_scratch[r * kW + x0], (size_t)(x1 - x0) * 2);
+}
+
+/* A number in the status-bar digits, right-aligned at right_x; the strip
+ * from clear_x to right_x (+ shadow) is restored first. */
+static void DrawNumber(int value, int pad_digits, int y, int scale, int right_x, int clear_x) {
   char buf[12];
   int n = 0;
   do {
     buf[n++] = (char)(value % 10);
     value /= 10;
   } while (value && n < 11);
-  while (zero_pad && n < digits) buf[n++] = 0;
-  const int w = 8 * scale * n;
-  const int start = right_x >= 0 ? right_x - w : x;
-  const int h = 8 * scale + scale;
-  const int clear_w = 8 * scale * digits + scale;
-  const int clear_x = right_x >= 0 ? right_x - 8 * scale * digits : x;
-  /* Compose in scratch (rows y..y+h of s_base), then copy. */
-  for (int r = 0; r < h; r++)
-    memcpy(&s_scratch[r * kW], &s_base[(y + r) * kW], kW * 2);
-  for (int i = 0; i < n; i++) {
-    const Glyph *g = &s_glyph[kGlyphDigit0 + buf[n - 1 - i]];
-    DrawGlyph(s_scratch - y * kW, g, start + i * 8 * scale, y, scale, true, false, false);
-  }
-  for (int r = 0; r < h; r++)
-    memcpy(&SUB_FB[(y + r) * kW + clear_x], &s_scratch[r * kW + clear_x], (size_t)clear_w * 2);
+  while (n < pad_digits) buf[n++] = 0;
+  const int h = 9 * scale;
+  BeginStrip(y, h);
+  const int start = right_x - 8 * scale * n;
+  for (int i = 0; i < n; i++)
+    DrawGlyph(s_scratch - y * kW, &s_glyph[kGlyphDigit0 + buf[n - 1 - i]], start + i * 8 * scale, y, scale,
+              true, false, false);
+  EndStrip(y, h, clear_x, right_x + scale);
 }
-
-/* DrawGlyph with a buffer pointer offset so (x, y) are screen coordinates
- * while writing into s_scratch rows; Put() bounds checks use kH, so keep
- * y within the screen. */
 
 /* Codes (message font tile - 0x100) of the name to show, and a hash. In a
  * level: from the level number. On the overworld: read back from the
@@ -340,54 +296,53 @@ static int NameCodes(int layout, uint8_t *codes, int max) {
 
 static void DrawName(const uint8_t *codes, int n) {
   const int x0 = kNameX + (kNameW - n * 8) / 2, y0 = kNameY + 6;
-  Restore(kNameX + 2, kNameY + 2, kNameW - 4, kNameH - 4);
-  for (int r = 0; r < 10; r++)
-    memcpy(&s_scratch[r * kW], &s_base[(y0 + r) * kW], kW * 2);
+  BeginStrip(y0, 9);
   for (int i = 0; i < n; i++) {
     Glyph g;
     CaptureTile(&g, 0x100 + codes[i], 6);
     DrawGlyph(s_scratch - y0 * kW, &g, x0 + i * 8, y0, 1, true, false, false);
   }
-  for (int r = 0; r < 10; r++)
-    memcpy(&SUB_FB[(y0 + r) * kW + kNameX + 2], &s_scratch[r * kW + kNameX + 2], (kNameW - 4) * 2);
+  EndStrip(y0, 9, kNameX + 4, kNameX + kNameW - 4);
+}
+
+/* Message-font code for a character (or -1). */
+static int FontCode(char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return 0x40 + (c - 'a');
+  if (c == '!') return 0x1a;
+  return -1;
+}
+
+/* A small panel along the bottom edge holding one line of text (or the
+ * scene again when text is NULL). */
+static void DrawMiniPanel(int x, int y, int w, int h, const char *text) {
+  BeginStrip(y, h);
+  uint16_t *fb = s_scratch - y * kW;
+  if (text) {
+    Panel(fb, x, y, w, h);
+    const int len = (int)strlen(text);
+    int tx = x + (w - len * 8) / 2;
+    for (int i = 0; i < len; i++, tx += 8) {
+      const char c = text[i];
+      Glyph g;
+      if (c >= '0' && c <= '9') g = s_glyph[kGlyphDigit0 + (c - '0')];
+      else if (FontCode(c) >= 0) CaptureTile(&g, 0x100 + (unsigned)FontCode(c), 6);
+      else continue;
+      DrawGlyph(fb, &g, tx, y + 4, 1, false, false, false);
+    }
+  }
+  EndStrip(y, h, x, x + w);
 }
 
 static void DrawFps(void) {
-  const int y = 182;
-  for (int r = 0; r < 9; r++) memcpy(&s_scratch[r * kW], &s_base[(y + r) * kW], kW * 2);
-  if (s_show_fps) {
-    char t[8] = {(char)('0' + (s_fps / 10) % 10), (char)('0' + s_fps % 10), ' ', 'F', 'P', 'S', 0};
-    for (int i = 0; t[i]; i++) {
-      Glyph g;
-      const char c = t[i];
-      if (c >= '0' && c <= '9') g = s_glyph[kGlyphDigit0 + (c - '0')];
-      else if (c == ' ') continue;
-      else CaptureTile(&g, 0x100 + (unsigned)(c - 'A'), 6);
-      DrawGlyph(s_scratch - y * kW, &g, 200 + i * 8, y, 1, true, false, false);
-    }
-  }
-  for (int r = 0; r < 9; r++) memcpy(&SUB_FB[(y + r) * kW + 196], &s_scratch[r * kW + 196], 60 * 2);
+  char t[8] = {(char)('0' + (s_fps / 10) % 10), (char)('0' + s_fps % 10), ' ', 'F', 'P', 'S', 0};
+  DrawMiniPanel(kFpsX, kFpsY, kFpsW, kFpsH, s_show_fps ? t : NULL);
 }
 
 /* "Game saved!" / "Save failed!" in the bottom-left corner. The font tiles
  * may not be loaded yet (title screen), so only shown with a layout. */
-static int s_seen_saves, s_message_frames;
-
 static void DrawSaveMessage(const char *text) {
-  const int y = 180, x = 8, w = 120;
-  for (int r = 0; r < 10; r++) memcpy(&s_scratch[r * kW], &s_base[(y + r) * kW], kW * 2);
-  for (int i = 0; text && text[i]; i++) {
-    const char c = text[i];
-    unsigned code;
-    if (c >= 'A' && c <= 'Z') code = (unsigned)(c - 'A');
-    else if (c >= 'a' && c <= 'z') code = 0x40 + (unsigned)(c - 'a');
-    else if (c == '!') code = 0x1a;
-    else continue;
-    Glyph g;
-    CaptureTile(&g, 0x100 + code, 6);
-    DrawGlyph(s_scratch - y * kW, &g, x + i * 8, y, 1, true, false, false);
-  }
-  for (int r = 0; r < 10; r++) memcpy(&SUB_FB[(y + r) * kW + x], &s_scratch[r * kW + x], w * 2);
+  DrawMiniPanel(kMsgX, kMsgY, kMsgW, kMsgH, text);
 }
 
 static void UpdateSaveMessage(void) {
@@ -475,6 +430,14 @@ void NdsHudPresent(void) {
   const uint8_t mode = ram[0x100];
   const int layout = (mode >= 0x13 && mode <= 0x14) ? kLayoutLevel : mode == 0x0e ? kLayoutOverworld : kLayoutNone;
 
+  int theme = s_theme, variant = s_variant;
+  if (layout != kLayoutNone) PickTheme(layout, &theme, &variant);
+  if (theme != s_theme || variant != s_variant) {
+    s_theme = theme;
+    s_variant = variant;
+    DrawScene();
+    s_layout = -1;
+  }
   if (layout != s_layout) {
     if (layout != kLayoutNone) CaptureGlyphs();
     BuildLayout(layout);
@@ -486,16 +449,20 @@ void NdsHudPresent(void) {
   if (layout != kLayoutNone) {
     const int lives = ram[0xdbe] + 1, coins = ram[0xdbf];
     if (lives != s_drawn_lives) {
-      DrawNumber(lives > 99 ? 99 : lives, 2, 0, kLeftY + 30, 2, false, kLeftX + 104);
+      DrawNumber(lives > 99 ? 99 : lives, 0, kLeftY + 32, 2, kLeftX + 110, kLeftX + 62);
       s_drawn_lives = lives;
     }
     if (coins != s_drawn_coins) {
-      DrawNumber(coins, 2, 0, kLeftY + 56, 2, false, kLeftX + 104);
+      DrawNumber(coins, 0, kLeftY + 56, 2, kLeftX + 110, kLeftX + 62);
       s_drawn_coins = coins;
     }
     const int32_t score = (int32_t)(ram[0xf34] | ram[0xf35] << 8 | ram[0xf36] << 16) * 10;
     if (score != s_drawn_score) {
-      DrawNumber(score, 7, 0, kBoxY + 84, 2, false, kRightX + kRightW - 6);
+      /* 2x up to six digits; a seventh only fits at 1x. */
+      const int scale = score < 1000000 ? 2 : 1;
+      if (scale != s_score_scale) Restore(kRightX + 4, kBoxY + 80, kRightW - 8, 18);
+      s_score_scale = scale;
+      DrawNumber(score, 0, kBoxY + 80 + (scale == 1 ? 4 : 0), scale, kRightX + kRightW - 8, kRightX + 4);
       s_drawn_score = score;
     }
     uint8_t codes[32];
@@ -511,7 +478,7 @@ void NdsHudPresent(void) {
   if (layout == kLayoutLevel) {
     const int time = ram[0xf31] * 100 + ram[0xf32] * 10 + ram[0xf33];
     if (time != s_drawn_time) {
-      DrawNumber(time, 3, 0, kLeftY + 86, 2, true, kLeftX + 112);
+      DrawNumber(time, 3, kLeftY + 80, 2, kLeftX + 110, kLeftX + 62);
       s_drawn_time = time;
     }
   }
@@ -552,7 +519,7 @@ void NdsHudPresent(void) {
     int frac = pos * 256 / (screens * 256);
     if (frac < 0) frac = 0;
     if (frac > 256) frac = 256;
-    const int x0 = kTrackX + 12, x1 = kTrackX + kTrackW - 16;
+    const int x0 = kTrackX0, x1 = kTrackX1;
     const int mx = x0 + (x1 - x0) * frac / 256 - 8;
     /* The player's two 16x16 sprites (tiles 0x00 and 0x02 are re-uploaded
      * every frame with the current pose); face the same way as on top. */
@@ -561,7 +528,7 @@ void NdsHudPresent(void) {
       if ((p->oam[i * 2 + 1] & 0x1ff) == 0x000) { flip = (p->oam[i * 2 + 1] >> 8) & 0x40; break; }
     CopySprite16(0x00, 4);
     CopySprite16(0x02, 8);
-    const int feet = kTrackY + 11;
+    const int feet = kGroundY;
     for (int part = 0; part < 2; part++) {
       SUB_OAM[(1 + part) * 4 + 0] = (uint16_t)(((feet - 32 + part * 16) & 0xff) | ATTR0_SQUARE | ATTR0_COLOR_16);
       SUB_OAM[(1 + part) * 4 + 1] = (uint16_t)((mx & 0x1ff) | ATTR1_SIZE_16 | (flip ? ATTR1_FLIP_X : 0));
