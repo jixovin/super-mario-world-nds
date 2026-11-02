@@ -229,6 +229,18 @@ int main(int argc, char **argv) {
       printf("\n");
       continue;
     }
+    if (strncmp(line, "dumpram ", 8) == 0) {  /* "dumpram N FILE": N frames, low 8 KB of RAM after each */
+      unsigned n = 0; char path[256] = "";
+      sscanf(line + 8, "%u %255s", &n, path);
+      FILE *f = fopen(path, "wb");
+      for (unsigned i = 0; i < n; i++, frame++) {
+        RunOneFrame(0);
+        PortRenderSoftware(g_pixels, 256 * 4);
+        fwrite(PortGameRam(), 1, 0x2000, f);
+      }
+      fclose(f);
+      continue;
+    }
     if (strncmp(line, "lastlevel", 9) == 0) {
       const uint8_t *r = PortGameRam();
       printf(" lastlevel %03x mode=%02x anim=%02x vert=%d x=%d y=%d\n", g_smw_nds_last_level, r[0x100], r[0x71],

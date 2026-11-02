@@ -550,7 +550,8 @@ static const uint8 kSpr026_Thwomp_YDisp[5] = { 0x0, 0x0, 0x10, 0x10, 0x8,  };
 static const uint8 kSpr026_Thwomp_Tiles[5] = { 0x8e, 0x8e, 0xae, 0xae, 0xc8,  };
 static const uint8 kSpr026_Thwomp_Prop[5] = { 0x3, 0x43, 0x3, 0x43, 0x3,  };
 static const uint8 kSpr017_GeneratorCheepCheep_Init_InitXSpeed[2] = { 0x10, 0xf0,  };
-static const uint8 kSprXXX_FixedMovementCheepCheep_SwimmingXSpeed[2] = { 0x8, 0xf8,  };
+/* smw-nds: indexed 0-3; in the ROM entries 2-3 are the next table's 0x00, 0x00 */
+static const uint8 kSprXXX_FixedMovementCheepCheep_SwimmingXSpeed[4] = { 0x8, 0xf8, 0x0, 0x0,  };
 static const uint8 kSprXXX_FixedMovementCheepCheep_SwimmingYSpeed[4] = { 0x0, 0x0, 0x8, 0xf8,  };
 static const uint8 kSprXXX_FixedMovementCheepCheep_KickedXSpeed[2] = { 0xf0, 0x10,  };
 static const uint8 kSprXXX_FixedMovementCheepCheep_FloppingYSpeed[4] = { 0xe0, 0xe8, 0xd0, 0xd8,  };
