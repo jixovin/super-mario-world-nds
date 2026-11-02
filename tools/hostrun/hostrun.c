@@ -389,6 +389,12 @@ int main(int argc, char **argv) {
       printf("\n");
       continue;
     }
+    if (strncmp(line, "saveram ", 8) == 0) {  /* "saveram FILE": all 128 KB of game RAM */
+      char *fn = strtok(line + 8, " \r\n");
+      FILE *f = fopen(fn, "wb");
+      if (f) { fwrite(PortGameRam(), 1, 0x20000, f); fclose(f); }
+      continue;
+    }
     if (strncmp(line, "ram", 3) == 0) {  /* "ram 13 109 1df5": print bytes */
       printf("frame %d:", frame);
       for (char *tok = strtok(line + 3, " \r\n"); tok; tok = strtok(NULL, " \r\n")) {
