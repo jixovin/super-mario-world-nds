@@ -28,3 +28,4 @@ smw_assets.dat
 *.bundle
 __pycache__/
 /nds/ci-test/
+/nds/data/assets_version.txt

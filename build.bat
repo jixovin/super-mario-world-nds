@@ -8,6 +8,9 @@ rem The data stays on your PC and is never uploaded to GitHub.
 setlocal
 set "ROOT=%~dp0"
 set "ASSETS=%ROOT%nds\data\smw_assets.bin"
+set "ASSETS_VER=%ROOT%nds\data\assets_version.txt"
+rem Bump this when the asset tool changes, so old game data is re-made.
+set "WANT_VER=2"
 set "MSYS_BASH=C:\devkitPro\msys2\usr\bin\bash.exe"
 
 if not exist "%MSYS_BASH%" (
@@ -15,9 +18,13 @@ if not exist "%MSYS_BASH%" (
   goto :fail
 )
 
-if not exist "%ASSETS%" (
+set "HAVE_VER="
+if exist "%ASSETS_VER%" set /p HAVE_VER=<"%ASSETS_VER%"
+if not exist "%ASSETS%" set "HAVE_VER="
+if not "%HAVE_VER%"=="%WANT_VER%" (
   call :make_assets
   if errorlevel 1 goto :fail
+  >"%ASSETS_VER%" echo %WANT_VER%
 )
 
 "%MSYS_BASH%" -lc "cd \"$(cygpath -u '%ROOT%nds')\" && make"

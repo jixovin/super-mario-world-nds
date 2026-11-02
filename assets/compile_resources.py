@@ -630,11 +630,15 @@ def print_all(args):
 
     add_asset_uint8('kLmLevelData5DC85', util.get_bytes(get_24(0x5DC86), 512) if lm_load_level else b'')    
     add_asset_uint8('kLmLevelData5DC8A', util.get_bytes(get_24(0x5DC8B), 512) if lm_load_level else b'')    
-    add_asset_uint8('kLm5FE00', util.get_bytes(get_24(0x5DC81), 512) if lm_load_level else b'')    
+    # smw-nds: an unmodified ROM keeps these secondary-entrance tables at
+    # $05F800/$05FA00/$05FC00/$05FE00; the game code always reads them
+    # (pipes/doors that use secondary exits, e.g. back out of Yoshi's
+    # Island 4's pipe), so they must not be empty.
+    add_asset_uint8('kLm5FE00', util.get_bytes(get_24(0x5DC81), 512) if lm_load_level else util.get_bytes(0x5FE00, 512))
 
-    add_asset_uint8('kLevelInfo_05F800', util.get_bytes(get_24(0xde191), 0x200) if lm_load_level else b'')
-    add_asset_uint8('kLevelInfo_05FA00', util.get_bytes(get_24(0xde198), 0x200) if lm_load_level else b'')
-    add_asset_uint8('kLevelInfo_05FC00', util.get_bytes(get_24(0xde19f), 0x200) if lm_load_level else b'')
+    add_asset_uint8('kLevelInfo_05F800', util.get_bytes(get_24(0xde191), 0x200) if lm_load_level else util.get_bytes(0x5F800, 0x200))
+    add_asset_uint8('kLevelInfo_05FA00', util.get_bytes(get_24(0xde198), 0x200) if lm_load_level else util.get_bytes(0x5FA00, 0x200))
+    add_asset_uint8('kLevelInfo_05FC00', util.get_bytes(get_24(0xde19f), 0x200) if lm_load_level else util.get_bytes(0x5FC00, 0x200))
     lm_feat.flags |= kLmFeature_LoadLevel if lm_load_level else 0
 
   add_load_level_stuff()

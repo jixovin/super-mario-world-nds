@@ -183,6 +183,25 @@ int main(int argc, char **argv) {
              d->masterVolumeL, d->masterVolumeR);
       continue;
     }
+    if (strncmp(line, "findtiles", 9) == 0) {  /* "findtiles LO HI": map16 tiles in the level (horizontal layout) */
+      unsigned lo = 0, hi = 0;
+      sscanf(line + 9, "%x %x", &lo, &hi);
+      const uint8_t *r = PortGameRam();
+      for (int i = 0; i < 0x3800; i++) {
+        const unsigned t = r[0xc800 + i] | r[0x1c800 + i] << 8;
+        if (t >= lo && t <= hi)
+          printf(" tile %03x at screen %d x=%d y=%d (px %d,%d)\n", t, i / 0x1b0, i % 16, (i % 0x1b0) / 16,
+                 (i / 0x1b0) * 256 + (i % 16) * 16, ((i % 0x1b0) / 16) * 16);
+      }
+      continue;
+    }
+    if (strncmp(line, "asset ", 6) == 0) {  /* "asset N IDX": size and byte */
+      extern const uint8_t *g_asset_ptrs[]; extern uint32_t g_asset_sizes[];
+      unsigned n = 0, i = 0;
+      sscanf(line + 6, "%u %x", &n, &i);
+      printf(" asset %u size=%u [%x]=%02x\n", n, g_asset_sizes[n], i, i < g_asset_sizes[n] ? g_asset_ptrs[n][i] : 0xee);
+      continue;
+    }
     if (strncmp(line, "levelmodes", 10) == 0) {  /* level number -> header level mode */
       for (int r = 0; r < 0x200; r++) {
         MemBlk b = FindInAssetArray(43, r);

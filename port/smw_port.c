@@ -72,6 +72,10 @@ const char *PortLoadAssets(const uint8_t *data, size_t length) {
     g_asset_ptrs[i] = data + offset;
     offset += size;
   }
+  /* Data made before v0.6.0 lacks the secondary-entrance tables (pipes and
+   * doors back to a level would lead to a broken area). */
+  if (kLevelInfo_05F800_SIZE == 0)
+    return "smw_assets.dat is from an older version. Make it again from your ROM (build.bat does this).";
   return NULL;
 }
 
