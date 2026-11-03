@@ -86,19 +86,18 @@ and touch features.
   New bottom screen: themed pixel-art backgrounds (map per world, and a
   scene per level setting), opaque panels, everything on a 2-pixel grid;
   Mario walks along the ground to the goal posts as the progress marker.
+- **v1.0.0 (Nov 2, 2026):** first public release. Checked on a DS Lite +
+  R4 with test saves: Iggy's and Lemmy's castles and cutscenes, the Yoshi's
+  Island 4 pipe fix, saving, and the ending credits. Menu icon and name,
+  MIT license, build.py (one script for Windows/macOS/Linux; makes the game
+  data for the ready-made .nds), README for release. Asset tool also takes
+  ROMs with a copier header.
 
-## Next milestones
+## Possible future work
 
-| # | Milestone | Done when |
-|---|---|---|
-| 1 | Real-hardware check | Done: 60 fps and saving confirmed on DS Lite + R4. |
-| 2 | Bottom screen HUD | Done in v0.3.0. |
-| 3 | Audio | Done in v0.4.0 (no echo yet). Echo/reverb via DS sound capture is a follow-up. |
-| 4 | Smart camera | Done in v0.5.0. |
-| 5 | Remaining SNES effects | Done in v0.5.0. |
-| 6 | Touch menu | Options/save menu on the bottom screen. |
-| 7 | Full playthrough | In progress: automated sweep of all levels, maps, cutscenes and the ending; then hardware. |
-| 8 | Release polish | Options, credits, build instructions, known-issues list. |
+- An options menu on the bottom screen (camera, FPS counter, sound).
+- The small differences listed in the README (spotlight rooms, one Boo
+  blend, the sprites-per-line limit, the map fade-in after losing a life).
 
 ## Testing approach
 
