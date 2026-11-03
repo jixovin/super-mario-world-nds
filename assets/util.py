@@ -94,7 +94,7 @@ class LoadedRom:
       disable_hash_check = True
 
     # Remove the SMC header?
-    if (len(self.ROM) & 0xfffff) == 0x200:
+    if (len(self.ROM) & 0x7fff) == 0x200:  # smw-nds: was 0xfffff (missed 512 KB ROMs)
       self.ROM = self.ROM[0x200:]
 
     hash = hashlib.sha1(self.ROM).hexdigest().upper()
@@ -142,6 +142,8 @@ class LoadedRom:
           return rom_path
       raise Exception(f"Could not find any ROMs ({', '.join(COMMON_ROM_NAMES)}) at the default location {DEFAULT_ROM_DIRECTORY}.") 
 
+    if os.path.isfile(path):  # smw-nds: a path relative to the current folder
+      return path
     rom_path = os.path.join(DEFAULT_ROM_DIRECTORY, path)
     if os.path.isfile(rom_path):
       return rom_path
