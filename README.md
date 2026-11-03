@@ -91,6 +91,19 @@ The first run makes the game data from your ROM (it stays on your PC, in
 it has the game data inside, so it needs nothing else on the card.
 `python3 build.py clean` deletes the build output.
 
+**If Windows blocks the build** (for example Smart App Control stopping
+devkitPro's compiler tools), either use Option A, or build inside WSL
+(Windows Subsystem for Linux), where the Linux steps work unchanged:
+
+1. In PowerShell as administrator: `wsl --install` (installs Ubuntu), then
+   restart your PC and finish the Ubuntu setup it opens.
+2. In the Ubuntu window: `sudo apt update && sudo apt install -y make python3`,
+   then install devkitPro's pacman as described on
+   [devkitPro pacman](https://devkitpro.org/wiki/devkitPro_pacman) (Debian/Ubuntu
+   section) and run `sudo dkp-pacman -S nds-dev`.
+3. Your Windows drives are under `/mnt/`, so for example:
+   `cd "/mnt/e/DS Ports/super-mario-world-nds"` then `python3 build.py`.
+
 **Don't share a `.nds` you built yourself or your `smw_assets.dat`**: they
 contain data from your ROM.
 
@@ -101,6 +114,7 @@ contain data from your ROM.
 | `That ROM is not Super Mario World (USA)` | The ROM isn't Super Mario World (USA). Other versions and ROM hacks aren't supported. |
 | `python3`/`py` is not recognized | Install Python 3 and tick "Add python.exe to PATH" (Windows), then open a new terminal. |
 | `devkitPro was not found` | Install devkitPro with NDS Development (Option B only), or use Option A. |
+| Windows blocks the build step | Use Option A, or build in WSL (see Option B). |
 | On the DS: `Game data not found` | Copy `smw_assets.dat` to `_nds/smw-nds/` on the card (Option A). |
 | On the DS: `smw_assets.dat is from an older version` | Make it again with `build.py data` from this version. |
 
