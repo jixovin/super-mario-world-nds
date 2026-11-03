@@ -140,10 +140,11 @@ int main(void) {
   const uint8_t *assets = LoadAssets(&assets_size, have_fat);
   if (!assets)
     PortPlatformFatal("Game data not found.\n\n"
-                      "Build with build.bat (it adds\n"
-                      "the data from your own ROM),\n"
-                      "or copy smw_assets.dat to the\n"
-                      "root of the SD card.");
+                      "Make smw_assets.dat from your\n"
+                      "own ROM with make_data.bat and\n"
+                      "copy it to the SD card folder\n"
+                      "/_nds/smw-nds/\n\n"
+                      "(or build with build.bat).");
   const char *error = PortLoadAssets(assets, assets_size);
   if (error) PortPlatformFatal(error);
 

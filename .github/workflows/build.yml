@@ -2,12 +2,11 @@ name: Build NDS
 
 on:
   push:
-    branches-ignore: [ci-logs, toolchain, toolchain-log, make-toolchain]
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -28,23 +27,6 @@ jobs:
           name: smw-nds-${{ github.sha }}
           path: nds/smw-nds.nds
           if-no-files-found: error
-      # Save the build log (and the .nds) to the ci-logs branch so they can be
-      # read with plain git.
-      - name: Publish build log
-        if: always()
-        shell: bash
-        run: |
-          command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git)
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          cp build.log /tmp/build.log 2>/dev/null || echo "no log" > /tmp/build.log
-          cd /tmp && rm -rf logrepo && mkdir logrepo && cd logrepo && git init -q
-          cp /tmp/build.log build.log
-          cp "$GITHUB_WORKSPACE/nds/smw-nds.nds" . 2>/dev/null || true
-          cp "$GITHUB_WORKSPACE/nds/build/smw-nds.map" . 2>/dev/null || true
-          echo "${GITHUB_SHA} ${{ job.status }}" > status.txt
-          git -c user.name=ci -c user.email=ci@users.noreply.github.com add .
-          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Build log for ${GITHUB_SHA}"
-          git push -qf "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" HEAD:ci-logs
 
   core:
     # The shared game core, built for the desktop test harness.

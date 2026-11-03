@@ -1,87 +1,128 @@
 # Super Mario World DS
 
 A native Nintendo DS port of *Super Mario World*, made for the DS Lite with
-an R4-style flashcart. It is not an emulator: the game's own logic runs as
-native ARM code, and the picture is drawn by the DS's 2D graphics hardware.
-The top screen shows the game; the bottom screen shows the status screen
-and touch features.
+an R4-style flashcart. It is not an emulator: the game's own logic runs as native ARM code, and the
+picture is drawn by the DS's 2D graphics hardware.
 
-## Current state (v0.6.0)
+**No game data is included.** You make it from your own copy of the game
+(see [Getting the game running](#getting-the-game-running)).
 
-- Runs at full speed (60 fps) on a real DS Lite + R4 (tested through most
-  of Yoshi's Island 1).
-- Hardware renderer: SNES tiles, maps, palettes and sprites are converted
-  to the DS 2D engine each frame; scanline effects use HBlank DMA.
-- Music and sound effects: the game's own sound driver runs, and the SNES
-  sound chip's 8 voices are played on the DS's hardware sound channels
-  (samples decoded from the SNES format once and cached), with the echo
-  done through the DS's sound capture units.
-- Bottom screen: a pixel-art status screen whose background matches where
-  you are: the overworld map (coloured per world), or the level's setting
-  (grass, sky, cave, water, castle over lava, ghost house, forest, ice,
-  night/Star Road, switch palaces in their own colour, Chocolate Island).
-  On it: the level name, big lives/coins/time/score counters drawn with
-  the game's own digits and icons, a large reserve-item box (tap it to use
-  the item), Mario walking along the ground towards the goal posts as he
-  gets through the level, and an FPS counter (tap it to hide or show).
-  Everything is drawn on an exact 2-pixel grid, with no blending.
-- SNES window effects: message boxes, keyhole and circle wipes.
-- Saves go to `/_nds/smw-nds/saves/` on the SD card, alternating between
-  `smw-a.srm` and `smw-b.srm` (each written as a new file and checked by
-  reading it back; the newest valid one is loaded), with "Game saved!"
-  shown on the bottom screen. Older `smw.srm` saves are still loaded.
-- Smart camera: in levels the top screen slides up to keep Mario and what's
-  above him in view.
-- Mode 7 boss rooms (Iggy/Larry, Morton/Roy/Ludwig, Reznor, Bowser),
-  translucent effects (ghost house fog etc.) and music echo.
-- Every pipe and door in the game leads where it should (v0.6.0 fixed the
-  data for exits that go back into a level, e.g. Yoshi's Island 4's pipe).
-- Checked automatically: every level, map, castle cutscene and the ending
-  against the reference picture; every pipe/door exit two deep, and
-  whole level runs, against the original game code (see tools/).
+## What you get
 
-- Shows up in TWiLight Menu++ and the DS menu with its own icon and name.
+- The whole game, from the title screen to the ending: every level, map,
+  secret exit, castle, boss (including the Mode 7 bosses) and cutscene.
+- Full speed (60 fps) on a real DS Lite, with the game's music and sound
+  effects (including echo) played on the DS's sound hardware.
+- **Top screen:** the game at 1:1 pixels. The DS screen is 32 lines shorter
+  than the SNES picture, so in levels a smart camera slides up and down to
+  keep Mario and what's around him in view.
+- **Bottom screen:** a pixel-art status screen whose background changes with
+  where you are: the overworld map (coloured per world), or the level's
+  setting (grass, sky, cave, underwater, castle over lava, ghost house,
+  forest, ice, night/Star Road, switch palaces in their own colour,
+  Chocolate Island). On it:
+  - the level name, in the game's own font;
+  - big lives, coins, time and score counters, in the game's own digits;
+  - a big reserve-item box: **tap it to use your stored item**;
+  - Mario walking along the ground towards the goal posts as you get
+    through the level;
+  - an FPS counter (tap it to hide or show).
+- Saving to the microSD card (`/_nds/smw-nds/saves/`), with
+  "Game saved!" shown on the bottom screen.
+- Its own icon and name in TWiLight Menu++ and the DS menu.
 
-### Test build with cheats
+### Controls
 
-For checking late parts of the game quickly, build with
-`make EXTRA_DEFS=-DSMW_NDS_CHEATS` (in `nds/`). Mario can't be hurt (pits
-still count), lives stay at 99, and L+R+X in a level ends it the way
-beating it does: castles play their boss cutscene, Bowser's castle goes to
-the ending. `tools/saves/make_save.py` makes a save with the whole map
-unlocked and the castles still standing. Never use either for a release.
+The DS buttons match the SNES pad: D-pad, A, B, X, Y, L, R, Start, Select.
+Tapping the item box on the bottom screen also drops your reserve item.
 
-See [the roadmap](ROADMAP.md) for what's next.
+### Known small differences
+
+The game runs the original game logic, and every level, map and cutscene
+was checked picture by picture against a reference render. These effects
+are close approximations rather than exact:
+
+- The SNES's limit of 32 sprites per line is not copied, so in a few busy
+  spots sprites that would flicker on a SNES stay visible.
+- In two dark rooms with a spotlight, the area outside the light is dimmed
+  slightly differently.
+- In one Boo room, a see-through Boo is blended with a different layer.
+- The map fades in after losing a life about one brightness step differently.
+
+## Getting the game running
+
+There are two ways. Both need your own **Super Mario World (USA)** ROM
+(`.sfc` or `.smc`, with or without the 512-byte header).
+
+### Option A: ready-made .nds + your game data (no compiler needed)
+
+1. Install [Python 3](https://www.python.org/downloads/) (on Windows, tick
+   "Add python.exe to PATH" in the installer).
+2. Download this repository (green **Code** button → **Download ZIP**) and
+   unzip it.
+3. Put your ROM in the `roms` folder, then double-click **`make_data.bat`**
+   (or drag your ROM onto it). It makes `smw_assets.dat` next to it.
+   On macOS/Linux: `python3 assets/restool.py -r path/to/rom.sfc --no-include-rom`.
+4. On your microSD card, make the folder `_nds/smw-nds/` and copy
+   `smw_assets.dat` into it.
+5. Copy `smw-nds.nds` from the [Releases](../../releases) page to the card,
+   and start it from your flashcart's menu.
+
+### Option B: build it yourself (Windows)
+
+1. Install devkitPro with the **NDS Development** option, to the default
+   `C:\devkitPro` ([installer](https://github.com/devkitPro/installer/releases)),
+   and [Python 3](https://www.python.org/downloads/).
+2. Download this repository and put your ROM in the `roms` folder.
+3. Double-click **`build.bat`**. The first run extracts the game data from
+   your ROM into `nds\data\` (it stays on your PC), then builds.
+4. Copy `nds\smw-nds.nds` to your microSD card. This build has the game
+   data inside it, so it needs nothing else on the card.
+
+On macOS/Linux with devkitPro installed: run the `restool.py` command from
+Option A inside `nds/data/`, rename the result to `smw_assets.bin`, then run
+`make` in `nds/`.
+
+**Don't share a `.nds` you built yourself or your `smw_assets.dat`**: they
+contain data from your ROM.
+
+### Troubleshooting
+
+| Message | Fix |
+|---|---|
+| `ROM with hash ... not supported` | The ROM isn't Super Mario World (USA). Other versions and ROM hacks aren't supported. |
+| `Python 3 is needed` | Install Python 3 and tick "Add python.exe to PATH". |
+| `devkitPro was not found` | Install devkitPro to `C:\devkitPro` with NDS Development ticked (Option B only). |
+| On the DS: `Game data not found` | Copy `smw_assets.dat` to `/_nds/smw-nds/` on the card (Option A). |
+| On the DS: `smw_assets.dat is from an older version` | Make it again with `make_data.bat` from this version. |
 
 ## How it works
 
 | Folder | What it is |
 |---|---|
-| `src/` | [snesrev/smw](https://github.com/snesrev/smw) (MIT): a complete C reimplementation of the game logic. DS changes are marked `smw-nds`. |
-| `port/` | Platform-neutral glue: game data, input, frame stepping. |
-| `nds/` | DS program: entry point, timing, hardware renderer (top screen), HUD (bottom screen). |
-| `assets/` | snesrev's tool that extracts graphics/levels from **your own ROM**. |
-| `tools/hostrun/` | Desktop test harness: runs the same game core with scripted input and saves screenshots. |
-| `tools/dstest/` | Headless DS test runner built on the melonDS core. |
+| `src/` | [snesrev/smw](https://github.com/snesrev/smw): a complete C reimplementation of the game logic. DS changes are marked `smw-nds`. |
+| `port/` | Platform-neutral glue: game data, input, saves, frame stepping. |
+| `nds/` | DS program: timing, the hardware renderer (top screen) that turns SNES tiles, sprites, scrolling, Mode 7 and colour effects into DS 2D-engine setup each frame, the sound driver bridge, and the bottom screen. |
+| `assets/` | snesrev's tool that extracts graphics, levels and music from **your own ROM**. |
+| `tools/` | Developer test tools (see [tools/README.md](tools/README.md)). |
 
-## Building
+See [the roadmap](ROADMAP.md) for the version history.
 
-1. Install devkitPro's **NDS Development** package (Windows: to `C:\devkitPro`)
-   and Python 3.
-2. Copy your Super Mario World (USA) ROM to `roms\smw.sfc`
-   (unheadered, CRC32 `B19ED489`).
-3. Double-click `build.bat`. The first run extracts the game data from your
-   ROM into `nds\data\` (kept on your PC only). It is made again
-   automatically when a new version needs different data.
-4. Copy `nds\smw-nds.nds` to your flashcart's microSD card.
+## Credits
 
-The GitHub Actions build checks that everything compiles. Because it never
-sees a ROM, its `.nds` has no game data built in and looks for
-`smw_assets.dat` on the SD card instead.
+- **jixovin**: project lead and hardware testing.
+- **[snesrev](https://github.com/snesrev/smw)**: the C reimplementation of
+  Super Mario World this port is built on.
+- **Claude** (Anthropic): wrote the DS port code.
+- **devkitPro / libnds** and **melonDS** (used for testing).
 
-## ROM and copyright
+## License and copyright
+
+The code is under the [MIT License](LICENSE); `src/` and `assets/` keep
+snesrev's MIT license ([src/LICENSE-snesrev.txt](src/LICENSE-snesrev.txt)).
 
 This repository contains no Nintendo data: no ROM, no extracted graphics,
 levels or music, and no `.nds` built with game data. You need your own
-legally obtained copy of the game. This is an independent homebrew project
-and is not affiliated with Nintendo.
+legally obtained copy of the game. *Super Mario World* is a trademark of
+Nintendo. This is an independent, unofficial homebrew project, not
+affiliated with or endorsed by Nintendo.

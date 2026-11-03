@@ -3,8 +3,9 @@ rem Double-click to build Super Mario World DS with your installed devkitPro.
 rem Output: nds\smw-nds.nds  (copy it to your R4 microSD card)
 rem
 rem The first build needs the game data made from YOUR OWN ROM. Put your
-rem Super Mario World USA ROM at roms\smw.sfc, and have Python 3 installed.
-rem The data stays on your PC and is never uploaded to GitHub.
+rem Super Mario World (USA) ROM (.sfc or .smc, any file name) in the roms
+rem folder, and have Python 3 installed. The data stays on your PC; never
+rem share the finished .nds, because it contains it.
 setlocal
 set "ROOT=%~dp0"
 set "ASSETS=%ROOT%nds\data\smw_assets.bin"
@@ -36,11 +37,18 @@ exit /b 0
 
 :make_assets
 set "ROM=%ROOT%roms\smw.sfc"
+if not exist "%ROM%" for %%F in ("%ROOT%roms\*.sfc" "%ROOT%roms\*.smc") do if not defined FOUND (
+  set "ROM=%%~fF"
+  set "FOUND=1"
+)
 if not exist "%ROM%" (
-  echo Game data is missing. Copy your Super Mario World USA ROM to:
-  echo   %ROM%
+  echo Game data is missing. Copy your Super Mario World ^(USA^) ROM ^(.sfc or .smc^)
+  echo into this folder:
+  echo   %ROOT%roms
+  if not exist "%ROOT%roms" mkdir "%ROOT%roms"
   exit /b 1
 )
+echo Using ROM: %ROM%
 set "PY="
 where py >nul 2>nul && set "PY=py -3"
 if not defined PY where python >nul 2>nul && set "PY=python"
@@ -61,6 +69,6 @@ exit /b 0
 
 :fail
 echo.
-echo BUILD FAILED - copy the messages above and send them to Claude.
+echo BUILD FAILED - see "Troubleshooting" in README.md.
 pause
 exit /b 1

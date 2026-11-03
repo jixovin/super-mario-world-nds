@@ -61,7 +61,7 @@ const char *PortLoadAssets(const uint8_t *data, size_t length) {
       length < 16 + 32 + 32 + 8 + kNumberOfAssets * 4 ||
       memcmp(data, kAssetsSig, 48) != 0 ||
       *(const uint32 *)(data + 80) != kNumberOfAssets)
-    return "smw_assets.dat does not match this build. Re-run the asset step.";
+    return "smw_assets.dat does not match this version. Make it again with make_data.bat.";
 
   uint32 offset = 88 + kNumberOfAssets * 4 + *(const uint32 *)(data + 84);
   for (size_t i = 0; i < kNumberOfAssets; i++) {
@@ -76,7 +76,7 @@ const char *PortLoadAssets(const uint8_t *data, size_t length) {
   /* Data made before v0.6.0 lacks the secondary-entrance tables (pipes and
    * doors back to a level would lead to a broken area). */
   if (kLevelInfo_05F800_SIZE == 0)
-    return "smw_assets.dat is from an older version. Make it again from your ROM (build.bat does this).";
+    return "smw_assets.dat is from an older version. Make it again with make_data.bat (or build.bat).";
   return NULL;
 }
 
