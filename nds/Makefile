@@ -7,9 +7,12 @@ ifeq ($(strip $(DEVKITARM)),)
 $(error "Please set DEVKITARM in your environment. Install the devkitPro NDS Development package.")
 endif
 
+# Name and icon shown in DS menus (TWiLight Menu++, the DS menu).
+# icon/icon.bmp is made by icon/make_icon.py.
 GAME_TITLE     := Super Mario World DS
-GAME_SUBTITLE1 := Native DS port (homebrew)
-GAME_SUBTITLE2 := Needs your own smw.sfc
+GAME_SUBTITLE1 := Native port for Nintendo DS
+GAME_SUBTITLE2 := jixovin, snesrev & Claude
+GAME_ICON      := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))icon/icon.bmp)
 
 include $(DEVKITARM)/ds_rules
 

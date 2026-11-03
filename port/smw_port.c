@@ -208,7 +208,37 @@ void PortRenderAudio(int16_t *stereo, int samples) {
   RtlRenderAudio(stereo, samples, 2);
 }
 
+#ifdef SMW_NDS_CHEATS
+/* Test build only (make EXTRA_DEFS=-DSMW_NDS_CHEATS): Mario can't be hurt
+ * (pits still count), lives stay at 99, and L+R+X in a level ends it the
+ * way beating its boss does (castles play their cutscene; Bowser's room
+ * goes to the ending; other levels end through the normal exit). */
+bool g_smw_cheat_invincible = true;
+
+static void ApplyCheats(uint32_t buttons) {
+  static uint32_t prev;
+  uint8 *ram = g_ram;
+  const uint32_t lr = kPortPad_L | kPortPad_R;
+  if (ram[0x100] == 0x14) {
+    if (ram[0xdbe] < 98) ram[0xdbe] = 98;
+    if ((buttons & lr) == lr && (buttons & kPortPad_X) && !(prev & kPortPad_X) && !ram[0x1493] &&
+        ram[0x71] == 0) {
+      bool castle = false;
+      for (int i = 0; i < 10; i++)
+        if (ram[0x13bf] == kLevelsThatTriggerCutscenes[i]) castle = true;
+      if (castle) ram[0x13c6] = 1;  /* what the boss sprites do when beaten */
+      ram[0x1493] = 0xff;           /* end-of-level timer */
+      ram[0x1dfb] = 11;           /* level-clear music */
+    }
+  }
+  prev = buttons;
+}
+#endif
+
 void PortRunFrame(uint32_t buttons) {
+#ifdef SMW_NDS_CHEATS
+  ApplyCheats(buttons);
+#endif
   /* Bit 30 tells the game a controller is plugged into port 1. */
   RtlRunFrame((buttons & 0xfff) | (1u << 30));
   /* The game waits for replies from the sound driver, so it must run every

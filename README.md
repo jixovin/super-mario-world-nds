@@ -40,6 +40,17 @@ and touch features.
   against the reference picture; every pipe/door exit two deep, and
   whole level runs, against the original game code (see tools/).
 
+- Shows up in TWiLight Menu++ and the DS menu with its own icon and name.
+
+### Test build with cheats
+
+For checking late parts of the game quickly, build with
+`make EXTRA_DEFS=-DSMW_NDS_CHEATS` (in `nds/`). Mario can't be hurt (pits
+still count), lives stay at 99, and L+R+X in a level ends it the way
+beating it does: castles play their boss cutscene, Bowser's castle goes to
+the ending. `tools/saves/make_save.py` makes a save with the whole map
+unlocked and the castles still standing. Never use either for a release.
+
 See [the roadmap](ROADMAP.md) for what's next.
 
 ## How it works

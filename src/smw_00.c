@@ -6156,7 +6156,14 @@ void PlayerState00_CheckPlayerPitFall() {  // 00f595
   }
 }
 
+#ifdef SMW_NDS_CHEATS
+extern bool g_smw_cheat_invincible;  // smw-nds: test build only
+#endif
+
 void DamagePlayer_Hurt() {  // 00f5b7
+#ifdef SMW_NDS_CHEATS
+  if (g_smw_cheat_invincible) return;
+#endif
   if (!player_current_state && !(timer_end_level | (uint8)(timer_star_power | timer_player_hurt))) {
     counter_pink_berry_cloud_coins = 0;
     if (player_wall_walk_status)
@@ -6181,6 +6188,9 @@ void DamagePlayer_Hurt() {  // 00f5b7
 }
 
 void DamagePlayer_Kill() {  // 00f606
+#ifdef SMW_NDS_CHEATS
+  if (g_smw_cheat_invincible) return;
+#endif
   player_yspeed = -112;
   DamagePlayer_PitFall();
 }
