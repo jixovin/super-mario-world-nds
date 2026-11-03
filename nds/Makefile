@@ -10,11 +10,15 @@ endif
 # Name and icon shown in DS menus (TWiLight Menu++, the DS menu).
 # icon/icon.bmp is made by icon/make_icon.py.
 GAME_TITLE     := Super Mario World DS
-GAME_SUBTITLE1 := Native port for Nintendo DS
-GAME_SUBTITLE2 := jixovin, snesrev & Claude
+GAME_SUBTITLE1 := jixovin, snesrev & Claude
 GAME_ICON      := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))icon/icon.bmp)
 
 include $(DEVKITARM)/ds_rules
+
+# Two banner lines (title, credits) instead of ds_rules' three.
+%.nds: %.elf
+	$(SILENTCMD)ndstool -c $@ -9 $< $(_ARM7_ELF) -b $(GAME_ICON) "$(GAME_TITLE);$(GAME_SUBTITLE1)" $(_ADDFILES)
+	$(SILENTMSG) built ... $(notdir $@)
 
 TARGET   := smw-nds
 BUILD    := build
