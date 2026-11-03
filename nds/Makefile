@@ -12,6 +12,11 @@ endif
 GAME_TITLE     := Super Mario World DS
 GAME_SUBTITLE1 := jixovin, snesrev & Claude
 GAME_ICON      := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))icon/icon.bmp)
+# Your own icon: put a 32x32, 16-colour BMP at icon/custom.bmp (kept out of
+# git) and it is used instead.
+ifneq ($(wildcard $(dir $(GAME_ICON))custom.bmp),)
+GAME_ICON      := $(dir $(GAME_ICON))custom.bmp
+endif
 
 include $(DEVKITARM)/ds_rules
 
