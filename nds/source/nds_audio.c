@@ -348,3 +348,11 @@ void NdsAudioFrame(void) {
     }
   }
 }
+
+/* Before sleep mode: silence everything. Voices and echo start again
+ * from the game's sound state on the following frames. */
+void NdsAudioSuspend(void) {
+  if (!s_on) return;
+  StopAll();
+  StopEcho();
+}

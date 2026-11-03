@@ -22,7 +22,7 @@
 #include "smw_assets_bin.h"
 #endif
 
-#define SMW_NDS_VERSION "1.0.1"
+#define SMW_NDS_VERSION "1.0.2"
 
 void PortPlatformFatal(const char *message) {
   consoleDemoInit(); /* the bottom screen may be showing the HUD */
@@ -128,6 +128,11 @@ volatile uint32_t g_test_ticks[3];
 extern volatile uint8_t g_test_ref_on;
 #endif
 
+static void OnPowerEvent(void *user, PmEvent event) {
+  (void)user;
+  if (event == PmEvent_OnSleep) NdsAudioSuspend();
+}
+
 int main(void) {
   defaultExceptionHandler();
   consoleDemoInit(); /* bottom screen text for now */
@@ -161,9 +166,14 @@ int main(void) {
   NdsTimingStart();
   NdsAudioInit();
 
+  /* Closing the lid puts the DS to sleep (pmMainLoop handles it); stop the
+   * sound first so nothing hangs on when it wakes up. */
+  static PmEventCookie pm_cookie;
+  pmAddEventHandler(&pm_cookie, OnPowerEvent, NULL);
+
   uint32_t frames = 0, last_second = 0, busy_ticks = 0;
 
-  for (;;) {
+  while (pmMainLoop()) {
     /* One SNES frame per DS screen refresh (59.8 Hz vs the SNES's 60.1). */
     const uint32_t t0 = NdsTimingTicks();
 #ifdef SMW_NDS_TEST
@@ -220,4 +230,5 @@ int main(void) {
       last_second = now;
     }
   }
+  return 0;  /* reset requested (e.g. DSi power button): back to the loader */
 }

@@ -5,7 +5,8 @@
 // which runs frames until game mode ($7E0100) equals XX.
 // Set WAV=<file> to record the DS's audio output (stereo 16-bit, 48 kHz).
 // Steps: "N" run N frames, "N:a+right" run N frames holding keys,
-//        "shot" save both screens as PPM, "touch:x,y" / "untouch".
+//        "shot" save both screens as PPM, "touch:x,y" / "untouch",
+//        "lidclose" / "lidopen".
 // With MAP=<smw-nds.map>: "set:SYMBOL,VALUE[,SIZE]" writes a global, and
 // "refshot" saves a SMW_NDS_TEST build's reference picture.
 #include <chrono>
@@ -243,6 +244,9 @@ int main(int argc, char **argv) {
     }
     if (s.rfind("touch:", 0) == 0) { int x, y; sscanf(s.c_str() + 6, "%d,%d", &x, &y); nds.TouchScreen(x, y); continue; }
     if (s == "untouch") { nds.ReleaseScreen(); continue; }
+    if (s == "pc") { printf("frame %d: arm9 pc=%08x lr=%08x  arm7 pc=%08x lr=%08x\n", frame, nds.ARM9.R[15], nds.ARM9.R[14], nds.ARM7.R[15], nds.ARM7.R[14]); continue; }
+    if (s == "lidclose") { nds.SetLidClosed(true); continue; }
+    if (s == "lidopen") { nds.SetLidClosed(false); continue; }
     if (s.rfind("pin:", 0) == 0) {
       unsigned a = 0, v = 0;
       sscanf(s.c_str() + 4, "%x,%x", &a, &v);

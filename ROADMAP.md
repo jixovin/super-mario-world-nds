@@ -94,6 +94,8 @@ and touch features.
   ROMs with a copier header.
 - **v1.0.1 (Nov 3, 2026):** the Mario on the bottom screen's progress
   track now faces the same way as Mario in the game (he ran backwards).
+- **v1.0.2 (Nov 3, 2026):** closing the lid puts the DS to sleep (sound is
+  stopped first). L+R+Start+Select quits to the flashcart menu.
 
 ## Possible future work
 

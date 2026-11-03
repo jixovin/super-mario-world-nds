@@ -35,6 +35,8 @@ picture is drawn by the DS's 2D graphics hardware.
 
 The DS buttons match the SNES pad: D-pad, A, B, X, Y, L, R, Start, Select.
 Tapping the item box on the bottom screen also drops your reserve item.
+Closing the lid puts the DS to sleep; open it to carry on.
+L+R+Start+Select quits to your flashcart's menu (unsaved progress is lost).
 
 ### Known small differences
 
