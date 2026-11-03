@@ -522,10 +522,10 @@ void NdsHudPresent(void) {
     const int x0 = kTrackX0, x1 = kTrackX1;
     const int mx = x0 + (x1 - x0) * frac / 256 - 8;
     /* The player's two 16x16 sprites (tiles 0x00 and 0x02 are re-uploaded
-     * every frame with the current pose); face the same way as on top. */
-    bool flip = false;
-    for (int i = 0; i < 128; i++)
-      if ((p->oam[i * 2 + 1] & 0x1ff) == 0x000) { flip = (p->oam[i * 2 + 1] >> 8) & 0x40; break; }
+     * every frame with the current pose). */
+    /* $76: 0 = facing left, 1 = facing right. The player's graphics are
+     * stored facing left, so flip them when Mario faces right. */
+    const bool flip = ram[0x76] != 0;
     CopySprite16(0x00, 4);
     CopySprite16(0x02, 8);
     const int feet = kGroundY;

@@ -92,6 +92,8 @@ and touch features.
   MIT license, build.py (one script for Windows/macOS/Linux; makes the game
   data for the ready-made .nds), README for release. Asset tool also takes
   ROMs with a copier header.
+- **v1.0.1 (Nov 3, 2026):** the Mario on the bottom screen's progress
+  track now faces the same way as Mario in the game (he ran backwards).
 
 ## Possible future work
 
