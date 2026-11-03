@@ -30,7 +30,7 @@ BUILD    := build
 # Game code shared with the desktop test harness lives outside nds/.
 SOURCES  := source ../port ../src ../src/snes
 INCLUDES := include ../port ../src ..
-# data/smw_assets.bin is made from your own ROM by build.bat. It is never
+# data/smw_assets.bin is made from your own ROM by build.py. It is never
 # committed; without it the game reads smw_assets.dat from the SD card.
 DATA     := data
 

@@ -51,37 +51,45 @@ are close approximations rather than exact:
 
 ## Getting the game running
 
-There are two ways. Both need your own **Super Mario World (USA)** ROM
-(`.sfc` or `.smc`, with or without the 512-byte header).
+You need your own **Super Mario World (USA)** ROM (`.sfc` or `.smc`, with or
+without the 512-byte header) and [Python 3](https://www.python.org/downloads/)
+(3.8 or newer; on Windows tick "Add python.exe to PATH" in the installer).
+Everything goes through one script, `build.py`, and works the same on
+Windows, macOS and Linux. On Windows, type `py` instead of `python3`.
 
-### Option A: ready-made .nds + your game data (no compiler needed)
+1. Download this repository (green **Code** button → **Download ZIP**, then
+   unzip it) and put your ROM in its `roms` folder (any file name).
+2. Open a terminal in that folder (Windows: in File Explorer, click the
+   address bar, type `cmd` and press Enter).
+3. Pick one:
 
-1. Install [Python 3](https://www.python.org/downloads/) (on Windows, tick
-   "Add python.exe to PATH" in the installer).
-2. Download this repository (green **Code** button → **Download ZIP**) and
-   unzip it.
-3. Put your ROM in the `roms` folder, then double-click **`make_data.bat`**
-   (or drag your ROM onto it). It makes `smw_assets.dat` next to it.
-   On macOS/Linux: `python3 assets/restool.py -r path/to/rom.sfc --no-include-rom`.
-4. On your microSD card, make the folder `_nds/smw-nds/` and copy
-   `smw_assets.dat` into it.
-5. Copy `smw-nds.nds` from the [Releases](../../releases) page to the card,
-   and start it from your flashcart's menu.
+### Option A: ready-made .nds (no compiler needed)
 
-### Option B: build it yourself (Windows)
+```
+python3 build.py data
+```
 
-1. Install devkitPro with the **NDS Development** option, to the default
-   `C:\devkitPro` ([installer](https://github.com/devkitPro/installer/releases)),
-   and [Python 3](https://www.python.org/downloads/).
-2. Download this repository and put your ROM in the `roms` folder.
-3. Double-click **`build.bat`**. The first run extracts the game data from
-   your ROM into `nds\data\` (it stays on your PC), then builds.
-4. Copy `nds\smw-nds.nds` to your microSD card. This build has the game
-   data inside it, so it needs nothing else on the card.
+This makes `smw_assets.dat` from your ROM. On your microSD card, make the
+folder `_nds/smw-nds/` and copy `smw_assets.dat` into it. Then copy
+`smw-nds.nds` from the [Releases](../../releases) page to the card and start
+it from your flashcart's menu.
 
-On macOS/Linux with devkitPro installed: run the `restool.py` command from
-Option A inside `nds/data/`, rename the result to `smw_assets.bin`, then run
-`make` in `nds/`.
+### Option B: build the .nds yourself
+
+Install devkitPro with **NDS Development**: on Windows with the
+[installer](https://github.com/devkitPro/installer/releases) (keep the
+default `C:\devkitPro`); on macOS/Linux by following
+[Getting Started](https://devkitpro.org/wiki/Getting_Started), then
+`sudo dkp-pacman -S nds-dev`. Then:
+
+```
+python3 build.py
+```
+
+The first run makes the game data from your ROM (it stays on your PC, in
+`nds/data/`), then builds `nds/smw-nds.nds`. Copy that to your microSD card;
+it has the game data inside, so it needs nothing else on the card.
+`python3 build.py clean` deletes the build output.
 
 **Don't share a `.nds` you built yourself or your `smw_assets.dat`**: they
 contain data from your ROM.
@@ -90,11 +98,11 @@ contain data from your ROM.
 
 | Message | Fix |
 |---|---|
-| `ROM with hash ... not supported` | The ROM isn't Super Mario World (USA). Other versions and ROM hacks aren't supported. |
-| `Python 3 is needed` | Install Python 3 and tick "Add python.exe to PATH". |
-| `devkitPro was not found` | Install devkitPro to `C:\devkitPro` with NDS Development ticked (Option B only). |
-| On the DS: `Game data not found` | Copy `smw_assets.dat` to `/_nds/smw-nds/` on the card (Option A). |
-| On the DS: `smw_assets.dat is from an older version` | Make it again with `make_data.bat` from this version. |
+| `That ROM is not Super Mario World (USA)` | The ROM isn't Super Mario World (USA). Other versions and ROM hacks aren't supported. |
+| `python3`/`py` is not recognized | Install Python 3 and tick "Add python.exe to PATH" (Windows), then open a new terminal. |
+| `devkitPro was not found` | Install devkitPro with NDS Development (Option B only), or use Option A. |
+| On the DS: `Game data not found` | Copy `smw_assets.dat` to `_nds/smw-nds/` on the card (Option A). |
+| On the DS: `smw_assets.dat is from an older version` | Make it again with `build.py data` from this version. |
 
 ## How it works
 

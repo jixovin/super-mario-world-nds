@@ -47,7 +47,7 @@ static uint8_t *ReadWholeFile(const char *path, size_t *size) {
 }
 
 /* Game graphics/levels, from (in order): data built into the program by
- * build.bat, a file packed into the .nds file system, or the SD card. */
+ * build.py, a file packed into the .nds file system, or the SD card. */
 static const uint8_t *LoadAssets(size_t *size, bool have_fat) {
 #ifdef HAVE_EMBEDDED_ASSETS
   *size = smw_assets_bin_size;
@@ -141,10 +141,10 @@ int main(void) {
   if (!assets)
     PortPlatformFatal("Game data not found.\n\n"
                       "Make smw_assets.dat from your\n"
-                      "own ROM with make_data.bat and\n"
+                      "own ROM (build.py data) and\n"
                       "copy it to the SD card folder\n"
                       "/_nds/smw-nds/\n\n"
-                      "(or build with build.bat).");
+                      "(or build with build.py).");
   const char *error = PortLoadAssets(assets, assets_size);
   if (error) PortPlatformFatal(error);
 
